@@ -1,0 +1,21 @@
+#!/usr/bin/env node
+// Falsk rtl_fm för testerna: skriver 16-bitars ljud i 24 kHz i realtid, brus 2 s och FFSK 1 s om vartannat.
+// Argumenten loggas i FAKE_RTL_LOG. FAKE_RTL_FAIL=1 avslutar direkt med ett fel som rtl_fm.
+'use strict';
+const fs = require('fs');
+const L = require('../ljud');
+if (process.env.FAKE_RTL_LOG) fs.appendFileSync(process.env.FAKE_RTL_LOG, process.argv.slice(2).join(' ') + '\n');
+if (process.env.FAKE_RTL_FAIL === '1') { process.stderr.write('No supported devices found.\n'); process.exit(1); }
+const RATE = 24000;
+const bits = Array.from({ length: 1200 }, (_, i) => (i * 7919 % 13) > 6 ? 1 : 0);
+const cycle = L.toBuf(L.concat(L.noise(2, RATE), L.ffsk(bits, RATE)));
+let off = 0;
+const CH = 2400 * 2;   // 50 ms
+setInterval(() => {
+    let b = cycle.subarray(off, off + CH);
+    off += CH;
+    if (off >= cycle.length) off = 0;
+    try { process.stdout.write(b); } catch (e) { process.exit(0); }
+}, 50);
+process.stdout.on('error', () => process.exit(0));
+process.on('SIGTERM', () => process.exit(0));

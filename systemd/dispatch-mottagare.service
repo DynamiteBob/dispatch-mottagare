@@ -1,0 +1,26 @@
+[Unit]
+Description=Dispatch-mottagare (RTL-SDR till Dispatch)
+Documentation=https://github.com/DynamiteBob/dispatch-mottagare
+After=network.target NetworkManager.service
+Wants=NetworkManager.service
+
+[Service]
+Type=simple
+User=mottagare
+Group=mottagare
+SupplementaryGroups=plugdev dialout
+WorkingDirectory=/opt/dispatch-mottagare
+ExecStart=/usr/bin/node /opt/dispatch-mottagare/src/main.js
+Restart=always
+RestartSec=3
+# /var/lib/dispatch-mottagare (inställningar, kö) och /run/dispatch-mottagare (ok-filen för uppdateringen)
+StateDirectory=dispatch-mottagare
+StateDirectoryMode=0700
+RuntimeDirectory=dispatch-mottagare
+RuntimeDirectoryPreserve=yes
+# Inställningssidan på port 80 utan root
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+Environment=NODE_ENV=production
+
+[Install]
+WantedBy=multi-user.target

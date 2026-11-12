@@ -1,0 +1,180 @@
+// ============================================================================
+// Hela kedjan mot den riktiga Dispatch-testservern (repot dispatch bredvid, eller DISPATCH_DIR):
+// falsk nmcli och falsk rtl_fm, mottagaren körs som i Pi:n (src/main.js) men utan sudo och på en annan port.
+//  1. inget nät efter start: hotspoten startar; fel lösenord: hotspoten tillbaka; rätt lösenord: ansluten
+//  2. Dispatch-adressen på inställningssidan → anmälan med kod → godkänns i Dispatch
+//  3. frekvens i Dispatch → rtl_fm startar inom en sekund, inspelningar kommer fram och går att ladda ner
+//  4. förstärkning ändras → rtl_fm startas om med -g; squelch ändras → rtl_fm startas inte om
+//  5. Starta om programmet (avslutas, startas igen med samma nyckel), Uppdatera (resultatet kommer tillbaka)
+//  6. mottagaren tystnar → Tyst i Dispatch och i aktivitetsloggen, tillbaka → kontakt igen
+//  7. borttagen i Dispatch → anmäler sig igen med en ny kod
+//   node test/test_e2e.js
+// ============================================================================
+'use strict';
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+const { spawn } = require('child_process');
+const { readWav } = require('../src/wav');
+
+const DISPATCH = process.env.DISPATCH_DIR || path.join(__dirname, '..', '..', 'dispatch');
+if (!fs.existsSync(path.join(DISPATCH, 'test', 'testserver.js'))) { console.log('HOPPAR ÖVER: Dispatch-repot saknas (DISPATCH_DIR)'); process.exit(0); }
+const T = require(path.join(DISPATCH, 'test', 'testserver.js'));
+
+let fails = 0;
+const check = (n, ok, x) => { console.log((ok ? 'OK   ' : 'FEL  ') + n + (ok || x === undefined ? '' : ' ' + JSON.stringify(x).slice(0, 600))); if (!ok) fails++; };
+const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+async function until(fn, ms, step) { const end = Date.now() + (ms || 10000); for (;;) { let v; try { v = await fn(); } catch (e) { v = null; } if (v) return v; if (Date.now() > end) return null; await sleep(step || 150); } }
+
+const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'mottagare-e2e-'));
+const STATE = path.join(tmp, 'state'), RUN = path.join(tmp, 'run'), NM = path.join(tmp, 'nm');
+fs.mkdirSync(NM);
+fs.writeFileSync(path.join(NM, 'state.json'), JSON.stringify({ mode: 'none', saved: {} }));
+const RTL_LOG = path.join(tmp, 'rtl.log');
+const PORTAL = 8191;
+const F = path.join(__dirname, 'falska');
+const rtlArgs = () => { try { return fs.readFileSync(RTL_LOG, 'utf8').trim().split('\n'); } catch (e) { return []; } };
+const nmCalls = () => { try { return fs.readFileSync(path.join(NM, 'calls.log'), 'utf8'); } catch (e) { return ''; } };
+const nmState = () => JSON.parse(fs.readFileSync(path.join(NM, 'state.json'), 'utf8'));
+
+let proc = null, lastExit = null, out = '';
+function startPi() {
+    lastExit = null;
+    proc = spawn(process.execPath, [path.join(__dirname, '..', 'src', 'main.js')], {
+        env: Object.assign({}, process.env, {
+            MOTTAGARE_STATE_DIR: STATE, MOTTAGARE_RUN_DIR: RUN, MOTTAGARE_PORTAL_PORT: String(PORTAL), MOTTAGARE_PORTAL_OPEN: '1',
+            MOTTAGARE_SUDO: '', MOTTAGARE_NMCLI: path.join(F, 'nmcli'), MOTTAGARE_RTL_FM: path.join(F, 'rtl_fm'), MOTTAGARE_UPDATER: path.join(F, 'uppdatera'),
+            MOTTAGARE_HW_ID: '10000000e2e0ab12', MOTTAGARE_HB_MS: '1000', MOTTAGARE_BOOT_MS: '1500', MOTTAGARE_NET_TICK_MS: '300', MOTTAGARE_OK_MS: '500',
+            FAKE_NM_DIR: NM, FAKE_RTL_LOG: RTL_LOG
+        }), stdio: ['ignore', 'pipe', 'pipe'] });
+    proc.stdout.on('data', d => { out += d; });
+    proc.stderr.on('data', d => { out += d; });
+    proc.on('exit', (code) => { lastExit = code; });
+}
+const portal = (p, opts) => fetch(`http://127.0.0.1:${PORTAL}${p}`, Object.assign({ redirect: 'manual' }, opts || {}));
+const pstat = async () => (await portal('/status.json')).json();
+const form = (p, o) => portal(p, { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams(o).toString() });
+
+(async () => {
+    const s = await T.start(8952, { env: { PEI_DEVICE: 'off', MOTTAGARE_POLL_MS: '3000', MOTTAGARE_SILENT_MS: '3000', MOTTAGARE_SWEEP_MS: '400' } });
+    const ADM = s.tokens.admin;
+    const list = async () => (await s.request('GET', '/api/admin/mottagare', undefined, ADM)).json.receivers;
+    try {
+        startPi();
+        // 1. Nätet
+        const up = await until(async () => (await portal('/')).status === 200, 8000);
+        check('inställningssidan svarar', !!up, out.slice(-500));
+        let html = await (await portal('/')).text();
+        check('sidan säger att Dispatch-adress saknas', html.includes('Ingen Dispatch-adress'));
+        const hs = await until(async () => (await pstat()).net.hotspot, 8000);
+        check('inget nät efter start: hotspoten startar', !!hs && /connection up dispatch-mottagare-hotspot/.test(nmCalls()), nmCalls());
+        check('hotspoten heter Dispatch-mottagare-AB12 och har WPA2', /ssid Dispatch-mottagare-AB12 .*wpa-psk/.test(nmCalls()));
+        html = await (await portal('/')).text();
+        check('näten runt mottagaren listas (sökta före hotspoten, : i namnet, inte det dolda)', html.includes('Hemma (80 %)') && html.includes('Grannen:5G') && html.includes('Kafe (30 %, öppet)'), html.slice(0, 0));
+        let r = await form('/wifi', { ssid: 'Hemma', psk: 'fel-losenord' });
+        check('Spara och anslut ger 303 till sidan', r.status === 303);
+        await until(async () => /Kunde inte ansluta/.test(await (await portal('/')).text()), 8000);
+        html = await (await portal('/')).text();
+        check('fel lösenord: beskedet visas', html.includes('Kunde inte ansluta till Hemma'));
+        check('fel lösenord: hotspoten startar igen', !!(await until(async () => (await pstat()).net.hotspot, 5000)));
+        r = await form('/wifi', { ssid: '', ssid_manual: 'Hemma', psk: 'ratt-losenord' });
+        const conn = await until(async () => { const n = (await pstat()).net; return n.wifi && n.wifi.connected && !n.hotspot ? n : null; }, 8000);
+        check('rätt lösenord (namnet skrivet för hand): ansluten till Hemma', conn && conn.wifi.ssid === 'Hemma', conn);
+        check('nätet är sparat med autoconnect', Object.values(nmState().saved).some(c => c.ssid === 'Hemma' && c.psk === 'ratt-losenord'));
+        r = await form('/wifi', { ssid: 'Hemma', psk: 'kort' });
+        html = await (await portal('/')).text();
+        check('för kort lösenord avvisas', html.includes('8–63 tecken'));
+
+        // 2. Dispatch
+        r = await form('/dispatch', { url: 'inte en adress med mellanslag' });
+        html = await (await portal('/')).text();
+        check('ogiltig adress avvisas', html.includes('inte giltig'));
+        r = await form('/dispatch', { url: s.base });
+        const pend = await until(async () => { const j = await pstat(); return j.dispatch.state === 'pending' && j.dispatch.pair_code ? j : null; }, 8000);
+        check('mottagaren anmäler sig och visar en kod', !!pend, out.slice(-800));
+        const code = pend && pend.dispatch.pair_code;
+        let L = await list();
+        check('Dispatch visar den väntande mottagaren med samma kod', L.length === 1 && L[0].state === 'pending' && L[0].pair_code === code && L[0].hw_id === '10000000e2e0ab12', L);
+        const id = L[0].id;
+        r = await s.request('POST', `/api/admin/mottagare/${id}/approve`, { name: 'Mottagare Ljusdal' }, ADM);
+        check('godkänd', r.status === 200, r.json);
+        check('mottagaren märker godkännandet direkt', !!(await until(async () => (await pstat()).dispatch.state === 'approved', 3000)));
+        html = await (await portal('/')).text();
+        check('sidan visar det nya namnet', html.includes('Mottagare Ljusdal'));
+        const st0 = await until(async () => { const x = (await list())[0]; return x.status && x.status.sdr ? x : null; }, 5000);
+        check('livssignalen: version, nät och ingen frekvens', st0 && st0.version === '0.1.0' && st0.status.net.type === 'wifi' && st0.status.net.ssid === 'Hemma' && st0.status.sdr.state === 'no_freq', st0 && st0.status);
+        check('livssignalen har hotspotens namn och lösenord', st0 && st0.status.hotspot.ssid === 'Dispatch-mottagare-AB12' && /^[a-z0-9]{12}$/.test(st0.status.hotspot.psk || ''), st0 && st0.status.hotspot);
+
+        // 3. Frekvens och inspelningar
+        const t0 = Date.now();
+        r = await s.request('PUT', `/api/admin/mottagare/${id}`, { config: { freq_hz: 69718750 } }, ADM);
+        check('frekvensen sparas', r.status === 200, r.json);
+        const started = await until(() => rtlArgs().some(l => /-f 69718750 -M fm -s 24000 -E dc -/.test(l)), 3000, 50);
+        check('rtl_fm startar med frekvensen inom 1,5 s', !!started && Date.now() - t0 < 1500, { ms: Date.now() - t0, args: rtlArgs() });
+        const running = await until(async () => { const x = (await list())[0]; return x.status.sdr.state === 'running' && x.config_applied ? x : null; }, 5000);
+        check('Dispatch: Lyssnar och inställningarna är hämtade', !!running, running && running.status);
+        const rec = await until(async () => { const j = (await s.request('GET', `/api/admin/mottagare/${id}/recordings`, undefined, ADM)).json; return j.recordings && j.recordings.length ? j.recordings : null; }, 12000, 300);
+        check('en inspelning kommer fram', !!rec, out.slice(-600));
+        if (rec) {
+            const x = rec[rec.length - 1];
+            check('inspelningen har frekvens, längd och nivå', x.freq_hz === 69718750 && x.duration_ms >= 900 && x.duration_ms <= 2200 && x.level_db > 10, x);
+            const w = await fetch(`${s.base}/api/admin/mottagare/recordings/${x.id}/wav`, { headers: { authorization: 'Bearer ' + ADM } });
+            const wavFile = readWav(Buffer.from(await w.arrayBuffer()));
+            check('WAV-filen: 24 kHz och samma längd', wavFile.rate === 24000 && Math.abs(wavFile.samples.length / 24 - x.duration_ms) < 30, { rate: wavFile.rate, n: wavFile.samples.length });
+        }
+
+        // 4. Ändringar
+        const nArgs = rtlArgs().length;
+        r = await s.request('PUT', `/api/admin/mottagare/${id}`, { config: { squelch_db: 12 } }, ADM);
+        await sleep(1500);
+        check('squelchen ändras utan att rtl_fm startas om', rtlArgs().length === nArgs, rtlArgs());
+        r = await s.request('PUT', `/api/admin/mottagare/${id}`, { config: { gain: 30.7, ppm: -3 } }, ADM);
+        check('förstärkning och ppm: rtl_fm startas om med -g 30.7 -p -3', !!(await until(() => rtlArgs().some(l => /-g 30\.7 -p -3/.test(l)), 3000, 50)), rtlArgs());
+
+        // 5. Kommandon
+        r = await s.request('POST', `/api/admin/mottagare/${id}/command`, { cmd: 'restart' }, ADM);
+        check('Starta om programmet: programmet avslutas med 0', (await until(() => lastExit !== null, 5000)) && lastExit === 0, { lastExit });
+        let cmd = (await list())[0].commands[0];
+        check('kommandot är kvitterat', cmd && cmd.cmd === 'restart' && cmd.done_at && cmd.ok === true, cmd);
+        const tokenBefore = JSON.parse(fs.readFileSync(path.join(STATE, 'state.json'), 'utf8')).token;
+        startPi();   // som systemd gör
+        check('efter omstarten: godkänd med samma nyckel, inställningarna gäller utan Dispatch', !!(await until(async () => (await pstat()).dispatch.state === 'approved', 8000))
+              && JSON.parse(fs.readFileSync(path.join(STATE, 'state.json'), 'utf8')).token === tokenBefore && rtlArgs().slice(-1)[0].includes('-g 30.7'));
+        check('inget nytt kommando körs efter omstarten', (await list())[0].commands.length === 1);
+        r = await s.request('POST', `/api/admin/mottagare/${id}/command`, { cmd: 'update' }, ADM);
+        cmd = await until(async () => { const c = (await list())[0].commands[0]; return c.cmd === 'update' && c.done_at ? c : null; }, 12000, 300);
+        check('Uppdatera: resultatet kommer tillbaka', cmd && cmd.ok === true && /Redan senaste/.test(cmd.message), cmd);
+        const lu = await until(async () => { const x = (await list())[0]; return x.status.last_update ? x.status.last_update : null; }, 4000);
+        check('senaste uppdateringen står i livssignalen', lu && lu.ok === true, lu);
+
+        // 6. Tyst
+        proc.kill('SIGKILL');
+        const silent = await until(async () => !(await list())[0].online, 8000, 200);
+        check('mottagaren tystnar: inte ansluten i Dispatch', !!silent);
+        let a = (await s.request('GET', '/api/admin/audit?action=mottagare', undefined, ADM)).json;
+        check('aktivitetsloggen: har inte hörts av', (a.rows || []).some(x => /Mottagare Ljusdal har inte hörts av sedan/.test(x.summary)), (a.rows || []).map(x => x.summary));
+        startPi();
+        check('tillbaka: ansluten igen', !!(await until(async () => (await list())[0].online, 8000)));
+        a = await until(async () => { const j = (await s.request('GET', '/api/admin/audit?action=mottagare', undefined, ADM)).json; return (j.rows || []).some(x => /har kontakt igen/.test(x.summary)) ? j : null; }, 4000);
+        check('aktivitetsloggen: har kontakt igen', !!a);
+
+        // 7. Borttagen
+        r = await s.request('DELETE', `/api/admin/mottagare/${id}`, undefined, ADM);
+        const again = await until(async () => { const j = await pstat(); return j.dispatch.state === 'pending' && j.dispatch.pair_code && j.dispatch.pair_code !== code ? j : null; }, 8000);
+        check('borttagen i Dispatch: anmäler sig igen med en ny kod', !!again, again);
+        L = await list();
+        check('Dispatch har en ny väntande mottagare', L.length === 1 && L[0].state === 'pending' && L[0].id !== id, L);
+        r = await s.request('POST', `/api/admin/mottagare/${L[0].id}/approve`, {}, ADM);
+        L = await list();
+        check('samma Pi utan namn: heter värddatorns namn', L[0].name === os.hostname(), L[0].name);
+    } catch (e) {
+        check('inget undantag', false, e.stack);
+    } finally {
+        if (proc) proc.kill('SIGKILL');
+        s.stop();
+        if (fails) console.log('\n--- mottagarens logg ---\n' + out.slice(-3000));
+        fs.rmSync(tmp, { recursive: true, force: true });
+    }
+    console.log(fails ? `\n${fails} FEL` : '\nALLT OK');
+    process.exit(fails ? 1 : 0);
+})();

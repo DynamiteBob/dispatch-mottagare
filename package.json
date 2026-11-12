@@ -1,0 +1,15 @@
+{
+  "name": "dispatch-mottagare",
+  "version": "0.1.0",
+  "description": "Mottagare för Dispatch: Raspberry Pi med RTL-SDR som spelar in och (senare) avkodar FFSK-positioner från Ericsson Aurora C50",
+  "main": "src/main.js",
+  "private": true,
+  "license": "UNLICENSED",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "start": "node src/main.js",
+    "test": "node test/kor_alla.js"
+  }
+}

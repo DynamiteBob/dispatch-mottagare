@@ -1,0 +1,45 @@
+#!/usr/bin/env node
+// Falsk nmcli för testerna. Läget ligger i FAKE_NM_DIR/state.json: mode none|eth|wifi|hotspot, ssid, saved {namn: {ssid, psk}}.
+// Varje anrop loggas i FAKE_NM_DIR/calls.log. Anslutning till ett sparat nät lyckas bara med lösenordet ratt-losenord (eller öppet nät).
+'use strict';
+const fs = require('fs');
+const path = require('path');
+const dir = process.env.FAKE_NM_DIR;
+const F = path.join(dir, 'state.json');
+let s; try { s = JSON.parse(fs.readFileSync(F, 'utf8')); } catch (e) { s = { mode: 'none', saved: {} }; }
+const a = process.argv.slice(2);
+fs.appendFileSync(path.join(dir, 'calls.log'), a.join(' ') + '\n');
+const save = () => fs.writeFileSync(F, JSON.stringify(s));
+const out = (t) => process.stdout.write(t);
+const j = a.join(' ');
+const esc = (x) => String(x).replace(/:/g, '\\:');
+if (j === '-t -f DEVICE,TYPE,STATE,CONNECTION device') {
+    out(`eth0:ethernet:${s.mode === 'eth' ? 'connected:Kabel' : 'unavailable:'}\n`);
+    const wc = s.mode === 'wifi' ? `connected:${esc(s.con)}` : s.mode === 'hotspot' ? 'connected:dispatch-mottagare-hotspot' : 'disconnected:';
+    out(`wlan0:wifi:${wc}\nlo:loopback:connected (externally):lo\n`);
+} else if (j === '-t -f ACTIVE,SSID,SIGNAL device wifi list --rescan no') {
+    out(`yes:${esc(s.ssid || '')}:72\nno:Grannen:40\n`);
+} else if (j === '-t -f SSID,SIGNAL,SECURITY device wifi list --rescan yes') {
+    out('Hemma:80:WPA2\nGrannen\\:5G:40:WPA2\nKafe:30:--\n:20:WPA2\n');
+} else if (a[0] === 'connection' && a[1] === 'delete') {
+    delete s.saved[a[2]]; save();
+} else if (a[0] === 'connection' && a[1] === 'add') {
+    const v = (k) => { const i = a.indexOf(k); return i >= 0 ? a[i + 1] : null; };
+    s.saved[v('con-name')] = { ssid: v('ssid'), psk: v('wifi-sec.psk'), mode: v('802-11-wireless.mode') || 'infrastructure' }; save();
+} else if (a[0] === '--wait' && a[2] === 'connection' && a[3] === 'up') {
+    const name = a[4], c = s.saved[name];
+    if (!c) { process.stderr.write('Error: unknown connection\n'); process.exit(10); }
+    if (c.mode === 'ap') { s.mode = 'hotspot'; s.ap_psk = c.psk; save(); }
+    else if (!c.psk || c.psk === 'ratt-losenord') { s.mode = 'wifi'; s.ssid = c.ssid; s.con = name; save(); }
+    else { s.mode = 'none'; save(); process.stderr.write('Error: Connection activation failed: Secrets were required\n'); process.exit(4); }
+} else if (a[0] === 'connection' && a[1] === 'down') {
+    if (a[2] === 'dispatch-mottagare-hotspot' && s.mode === 'hotspot') { s.mode = 'none'; save(); }
+} else if (j === '-t -f NAME,TYPE connection show') {
+    for (const n of Object.keys(s.saved)) out(`${esc(n)}:802-11-wireless\n`);
+    out('Kabel:802-3-ethernet\n');
+} else if (a[0] === '-t' && a[1] === '-g') {
+    const c = s.saved[a[a.length - 1]];
+    if (c) out(`${c.ssid}\n${c.mode}\n`);
+} else {
+    process.stderr.write('falsk nmcli: okänt anrop\n'); process.exit(2);
+}

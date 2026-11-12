@@ -1,0 +1,66 @@
+#!/bin/bash
+# ============================================================================
+# Kommandoraden för Dispatch-mottagaren (kör med sudo)
+#   dispatch-mottagare status          läget, koden, hotspotens namn och lösenord
+#   dispatch-mottagare logg            loggen (Ctrl+C avslutar)
+#   dispatch-mottagare uppdatera       hämta senaste versionen nu
+#   dispatch-mottagare adress <url>    byt Dispatch-adress (mottagaren anmäler sig på nytt)
+#   dispatch-mottagare hotspot         starta mottagarens eget wifi nu
+#   dispatch-mottagare omstart         starta om programmet
+# ============================================================================
+set -u
+STATE=/var/lib/dispatch-mottagare
+SERVICE=dispatch-mottagare
+
+need_root() { [ "$(id -u)" -eq 0 ] || { echo "Kör med sudo: sudo dispatch-mottagare $1"; exit 1; }; }
+json() { node -e "const s=JSON.parse(require('fs').readFileSync('$STATE/state.json','utf8')); const v=($1); process.stdout.write(v===undefined||v===null?'':String(v))" 2>/dev/null; }
+
+case "${1:-status}" in
+    status)
+        need_root status
+        echo "Version:      $(node -p "require('/opt/dispatch-mottagare/package.json').version" 2>/dev/null)"
+        echo "Tjänsten:     $(systemctl is-active $SERVICE)"
+        echo "Dispatch:     $(json 's.dispatch_url || "(ingen adress)"')"
+        STATE_TXT=$(json 's.token ? (s.state === "approved" ? "godkänd som " + s.name : "väntar på godkännande, koden " + s.pair_code) : "inte anmäld"')
+        echo "Läge:         $STATE_TXT"
+        HW=$(node -e "process.env.MOTTAGARE_HW_ID='';const s=require('/opt/dispatch-mottagare/src/system.js');process.stdout.write(s.hwId())" 2>/dev/null)
+        PSK=$(json '(s.config && s.config.hotspot_psk) || s.hotspot_psk')
+        echo "Eget wifi:    Dispatch-mottagare-$(printf '%s' "$HW" | tail -c 4 | tr 'a-z' 'A-Z')   lösenord: $PSK"
+        curl -fsS --max-time 3 http://127.0.0.1/status.json 2>/dev/null | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>{try{const j=JSON.parse(d);const n=j.net;console.log('Nät:          '+(n.eth?'nätkabel':n.wifi&&n.wifi.connected?'wifi '+(n.wifi.ssid||''):n.hotspot?'eget wifi är igång':'ingen anslutning'));console.log('Mottagning:   '+j.sdr.state+(j.sdr.freq_hz?' '+(j.sdr.freq_hz/1e6).toFixed(5)+' MHz':'')+(j.sdr.error?' ('+j.sdr.error+')':''));if(j.dispatch.last_error)console.log('Senaste fel:  '+j.dispatch.last_error)}catch(e){}})" || true
+        ;;
+    logg|log)
+        need_root logg
+        exec journalctl -u $SERVICE -n 100 -f
+        ;;
+    uppdatera)
+        need_root uppdatera
+        exec /usr/local/sbin/dispatch-mottagare-uppdatera
+        ;;
+    adress)
+        need_root adress
+        [ -n "${2:-}" ] || { echo "Ange adressen: sudo dispatch-mottagare adress https://dispatch.exempel.se"; exit 1; }
+        systemctl stop $SERVICE
+        URL="$2" node -e "
+          const f='$STATE/state.json', fs=require('fs');
+          let s={}; try{s=JSON.parse(fs.readFileSync(f,'utf8'))}catch(e){}
+          let u=process.env.URL.trim(); if(!/^https?:\/\//i.test(u)) u='https://'+u;
+          const p=new URL(u); s.dispatch_url=p.protocol+'//'+p.host+p.pathname.replace(/\/+\$/,'');
+          for (const k of ['token','receiver_id','state','pair_code','last_cmd']) delete s[k];
+          fs.writeFileSync(f, JSON.stringify(s,null,2), {mode:0o600}); console.log('Dispatch-adressen är '+s.dispatch_url);"
+        chown mottagare:mottagare "$STATE/state.json"
+        systemctl start $SERVICE
+        ;;
+    hotspot)
+        need_root hotspot
+        touch /run/dispatch-mottagare/hotspot && chown mottagare:mottagare /run/dispatch-mottagare/hotspot
+        echo "Mottagarens eget wifi startar inom tio sekunder. SSH-anslutningen över wifi bryts."
+        ;;
+    omstart)
+        need_root omstart
+        systemctl restart $SERVICE && echo "Programmet startades om."
+        ;;
+    *)
+        sed -n '3,9p' "$0" | sed 's/^# \{0,1\}//'
+        exit 1
+        ;;
+esac
