@@ -1,6 +1,8 @@
 # Dispatch-mottagare
 
-Program för en Raspberry Pi med en RTL-SDR-sticka. Mottagaren lyssnar på en frekvens, spelar in det som squelchen öppnar för och skickar inspelningarna till Dispatch. I en senare version avkodar den FFSK-positionerna från Ericsson Aurora (C50) och skickar dem som positioner.
+Program för en Raspberry Pi med en RTL-SDR-sticka. Mottagaren lyssnar på en frekvens och avkodar positionerna som Ericsson Aurora (C50) skickar med FFSK. Positionerna skickas till Dispatch och visas i lagret Radio 90 på kartan. Mottagaren kan också spela in det som squelchen öppnar för och skicka inspelningarna till Dispatch.
+
+Formatet står i [docs/aurora-ffsk.md](docs/aurora-ffsk.md).
 
 Allt som mottagaren ska göra ställs in i Dispatch, under Adminportalen → Mottagare. På Pi:n finns bara Dispatch-adressen och mottagarens nyckel.
 
@@ -53,7 +55,7 @@ Knappen Uppdatera i Dispatch hämtar den senaste taggen (`v0.1.0`, `v0.1.1` …)
 ## Mappar på Pi:n
 
 - `/opt/dispatch-mottagare`: programmet (git)
-- `/var/lib/dispatch-mottagare`: inställningar (`state.json`) och kön med inspelningar som inte skickats (`kö/`)
+- `/var/lib/dispatch-mottagare`: inställningar (`state.json`), kön med inspelningar som inte skickats (`kö/`) och avkodade meddelanden som inte skickats (`meddelanden.json`, högst 2 000)
 - `/etc/systemd/system/dispatch-mottagare.service`: tjänsten
 - `/etc/sudoers.d/dispatch-mottagare`: rätt att köra nmcli, reboot och uppdateringen
 - `/etc/modprobe.d/dispatch-mottagare-rtlsdr.conf`: stänger av Linux DVB-drivrutin för stickan

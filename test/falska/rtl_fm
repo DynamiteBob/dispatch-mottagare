@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 // Falsk rtl_fm för testerna: skriver 16-bitars ljud i 24 kHz i realtid, brus 2 s och FFSK 1 s om vartannat.
+// FAKE_RTL_PAYLOAD byter data i Aurora-meddelandet (36 hextecken).
 // Argumenten loggas i FAKE_RTL_LOG. FAKE_RTL_FAIL=1 avslutar direkt med ett fel som rtl_fm.
 'use strict';
 const fs = require('fs');
@@ -7,7 +8,12 @@ const L = require('../ljud');
 if (process.env.FAKE_RTL_LOG) fs.appendFileSync(process.env.FAKE_RTL_LOG, process.argv.slice(2).join(' ') + '\n');
 if (process.env.FAKE_RTL_FAIL === '1') { process.stderr.write('No supported devices found.\n'); process.exit(1); }
 const RATE = 24000;
-const bits = Array.from({ length: 1200 }, (_, i) => (i * 7919 % 13) > 6 ? 1 : 0);
+// FFSK-skuren är ett positionsmeddelande från Aurora med påhittade värden (ID 12345, 59° 20,1234′ N 018° 04,5678′ E),
+// med förspel så att den blir 1 s lång
+const ffsk = require('../../src/ffsk');
+const PAYLOAD = process.env.FAKE_RTL_PAYLOAD || '8312592012340180045678004512345033' + '00';
+const frame = ffsk.encodeBits(['810004E02000', PAYLOAD.slice(0, 12), PAYLOAD.slice(12, 24), PAYLOAD.slice(24, 36)].map(h => BigInt('0x' + h)));
+const bits = Array.from({ length: 1200 - frame.length }, (_, i) => i % 2 ? 0 : 1).concat(frame);
 const cycle = L.toBuf(L.concat(L.noise(2, RATE), L.ffsk(bits, RATE)));
 let off = 0;
 const CH = 2400 * 2;   // 50 ms

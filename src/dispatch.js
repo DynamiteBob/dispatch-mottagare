@@ -7,6 +7,8 @@
 //    401 UNKNOWN = mottagaren har tagits bort i Dispatch: nyckeln glöms och mottagaren anmäler sig igen med en ny kod.
 //  - Livssignal: POST /api/mottagare/status var 30:e sekund (HB_MS) och direkt efter nya inställningar.
 //  - Inspelningar: POST /api/mottagare/recordings (audio/wav) från kön, den äldsta först.
+//  - Avkodade meddelanden (0.2.0): POST /api/mottagare/messages { messages: [...] }, högst 50 åt gången, direkt när de
+//    avkodats och annars var 2:a sekund tills kön är tom.
 // Efter ett fel väntar den 3 s, sedan längre (högst 60 s).
 // ============================================================================
 'use strict';
@@ -29,8 +31,9 @@ function normalizeUrl(input) {
 }
 
 class DispatchClient {
-    constructor({ version, hwId, model, hostname, statusFn, onConfig, onCommand, queue }) {
-        Object.assign(this, { version, hwId, model, hostname, statusFn, onConfig, onCommand, queue });
+    constructor({ version, hwId, model, hostname, statusFn, onConfig, onCommand, queue, msgs }) {
+        Object.assign(this, { version, hwId, model, hostname, statusFn, onConfig, onCommand, queue, msgs });
+        this.sendingMsgs = false;
         this.stopped = false;
         this.ctrl = null;
         this.lastOkAt = null;
@@ -46,7 +49,7 @@ class DispatchClient {
     start() {
         this.pollLoop();
         this.hb = setInterval(() => this.heartbeat(), HB_MS);
-        this.up = setInterval(() => this.uploadNext(), 2000);
+        this.up = setInterval(() => { this.uploadNext(); this.uploadMessages(); }, 2000);
     }
     stop() { this.stopped = true; clearInterval(this.hb); clearInterval(this.up); if (this.ctrl) this.ctrl.abort(); }
     // Ny Dispatch-adress från inställningssidan: nyckeln glöms och mottagaren anmäler sig på nytt
@@ -146,6 +149,18 @@ class DispatchClient {
     }
     async commandDone(id, ok, message) {
         try { await this.req('POST', `/api/mottagare/commands/${id}/done`, { body: { ok, message } }); return true; } catch (e) { return false; }
+    }
+    async uploadMessages() {
+        const s = state.get();
+        if (!this.msgs || this.sendingMsgs || !s.dispatch_url || !s.token || s.state !== 'approved' || !this.msgs.length) return;
+        this.sendingMsgs = true;
+        try {
+            const batch = this.msgs.peek(50);
+            const r = await this.req('POST', '/api/mottagare/messages', { body: { messages: batch } });
+            if (r.status === 200) { this.msgs.drop(batch.length); if (this.msgs.length) setImmediate(() => this.uploadMessages()); }
+            else if (r.status === 400) { this.msgs.drop(batch.length); log(`meddelandena avvisades: ${r.json.error || r.status}`); }
+        } catch (e) { /* försöker igen */ }
+        finally { this.sendingMsgs = false; }
     }
     async uploadNext() {
         const s = state.get();

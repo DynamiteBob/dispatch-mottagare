@@ -20,10 +20,15 @@ leverera genom push till `main`, skriv text enligt skillen naturlig-text.
 - `src/net.js` styr NetworkManager och mottagarens eget wifi (hotspot, 10.42.0.1).
 - `src/portal.js` är inställningssidan på port 80, utan skript.
 - `src/sdr.js` startar `rtl_fm`; `src/squelch.js` är brussquelchen och inspelningen; `src/queue.js` kön på disk.
+- `src/ffsk.js` avkodar FFSK (0.2.0) i varje avsnitt som squelchen släpper igenom, även korta; `src/aurora.js` tolkar
+  Aurora-meddelandet; `src/msgqueue.js` är kön för meddelandena (`meddelanden.json`). Dispatch tolkar om rådata själv
+  (`radio90.js` i Dispatch-repot), så ett fel i tolkningen kan rättas i Dispatch utan att mottagarna uppdateras.
+  Formatet: `docs/aurora-ffsk.md`. Inställningarna `decode` (förvalt på) och `record` styr avkodning och inspelning var för sig.
 - `bin/uppdatera.sh` uppdaterar och går tillbaka om den nya versionen inte skriver `/run/dispatch-mottagare/ok`.
 - `bin/dispatch-mottagare` är kommandoraden.
 
-Dispatch-sidan finns i `mottagare.js` i Dispatch-repot (API) och "MOTTAGARE" i `private/app.js` (Adminportalen → Mottagare).
+Dispatch-sidan finns i `mottagare.js` och `radio90.js` i Dispatch-repot (API), "MOTTAGARE" och "RADIO 90 I ADMINPORTALEN" i
+`private/app.js` (Adminportalen → Mottagare) och "RADIO 90" i `private/karta.js` (lagret på kartan).
 Ändras API:t ska båda repona ändras, och `test/test_e2e.js` här ska gå igenom mot Dispatch.
 
 ## Tester
@@ -31,7 +36,12 @@ Dispatch-sidan finns i `mottagare.js` i Dispatch-repot (API) och "MOTTAGARE" i `
 `node test/kor_alla.js`. `test_e2e.js` kräver Dispatch-repot bredvid eller `DISPATCH_DIR`. Falska `nmcli`, `rtl_fm`
 och uppdatering finns i `test/falska/`. Miljövariablerna `MOTTAGARE_*` (se källfilerna) byter sökvägar och tider i testerna.
 
-## Nästa steg (planerat)
+## Integritet
 
-FFSK-avkodning av Aurora-positioner (MPT1327-liknande, 1200 bit/s, 1200/1800 Hz). Formatet tas fram ur inspelningarna
-från version 0.1. Underlag: GPS Parametrar i Aurora rev 4 och P500/C50/F50 programming manual TC-1452 (i claude.ai-projektet).
+Repot är publikt. Lägg aldrig in inspelningar, rådata eller exempel med verkliga positioner eller verkliga radio-ID.
+Testerna och dokumentationen använder påhittade värden (ID 12345, 59° 20,1234′ N 018° 04,5678′ E).
+
+## Kvar att undersöka
+
+Vad byte 1 (0x12) och halvbytet i longituden betyder, och om radion kan skicka fler fält (GPS Parametrar rev 4). Andra
+värden än 0x12 skickas som rådata och visas i Adminportalen → Mottagare → Radio 90.

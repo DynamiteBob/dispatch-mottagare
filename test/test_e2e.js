@@ -4,6 +4,7 @@
 //  1. inget nät efter start: hotspoten startar; fel lösenord: hotspoten tillbaka; rätt lösenord: ansluten
 //  2. Dispatch-adressen på inställningssidan → anmälan med kod → godkänns i Dispatch
 //  3. frekvens i Dispatch → rtl_fm startar inom en sekund, inspelningar kommer fram och går att ladda ner
+//     (0.2.0) FFSK-skuren (Aurora, påhittade värden) avkodas och syns som Radio 90 i Dispatch; inspelning och avkodning av
 //  4. förstärkning ändras → rtl_fm startas om med -g; squelch ändras → rtl_fm startas inte om
 //  5. Starta om programmet (avslutas, startas igen med samma nyckel), Uppdatera (resultatet kommer tillbaka)
 //  6. mottagaren tystnar → Tyst i Dispatch och i aktivitetsloggen, tillbaka → kontakt igen
@@ -102,7 +103,7 @@ const form = (p, o) => portal(p, { method: 'POST', headers: { 'content-type': 'a
         html = await (await portal('/')).text();
         check('sidan visar det nya namnet', html.includes('Mottagare Ljusdal'));
         const st0 = await until(async () => { const x = (await list())[0]; return x.status && x.status.sdr ? x : null; }, 5000);
-        check('livssignalen: version, nät och ingen frekvens', st0 && st0.version === '0.1.0' && st0.status.net.type === 'wifi' && st0.status.net.ssid === 'Hemma' && st0.status.sdr.state === 'no_freq', st0 && st0.status);
+        check('livssignalen: version, nät och ingen frekvens', st0 && st0.version === require('../package.json').version && st0.status.net.type === 'wifi' && st0.status.net.ssid === 'Hemma' && st0.status.sdr.state === 'no_freq', st0 && st0.status);
         check('livssignalen har hotspotens namn och lösenord', st0 && st0.status.hotspot.ssid === 'Dispatch-mottagare-AB12' && /^[a-z0-9]{12}$/.test(st0.status.hotspot.psk || ''), st0 && st0.status.hotspot);
 
         // 3. Frekvens och inspelningar
@@ -122,6 +123,30 @@ const form = (p, o) => portal(p, { method: 'POST', headers: { 'content-type': 'a
             const wavFile = readWav(Buffer.from(await w.arrayBuffer()));
             check('WAV-filen: 24 kHz och samma längd', wavFile.rate === 24000 && Math.abs(wavFile.samples.length / 24 - x.duration_ms) < 30, { rate: wavFile.rate, n: wavFile.samples.length });
         }
+
+        // 3b. Radio 90: FFSK-skuren avkodas i Pi:n och tolkas i Dispatch
+        const r90 = await until(async () => { const j = (await s.request('GET', '/api/karta/radio90', undefined, ADM)).json; return (j.items || []).find(i => i.id === '12345'); }, 12000, 300);
+        check('Radio 90: radion 12345 med position i Dispatch', r90 && r90.fix && Math.abs(r90.position.lat - (59 + 20.1234 / 60)) < 1e-5 && Math.abs(r90.position.lon - (18 + 4.5678 / 60)) < 1e-5
+              && r90.speed_kmh === 45 && r90.status === '33' && r90.receivers.includes('Mottagare Ljusdal'), r90 || out.slice(-600));
+        const dec = await until(async () => { const x = (await list())[0]; return x.status.decoder && x.status.decoder.count > 0 ? x.status.decoder : null; }, 5000);
+        check('livssignalen: avkodarens läge', dec && dec.enabled && dec.last_id === '12345', dec);
+        // Inspelning av: meddelandena kommer ändå, inga nya inspelningar
+        r = await s.request('PUT', `/api/admin/mottagare/${id}`, { config: { record: false } }, ADM);
+        await until(async () => (await list())[0].config_applied, 4000);
+        await sleep(800);
+        const nRec = (await s.request('GET', `/api/admin/mottagare/${id}/recordings`, undefined, ADM)).json.recordings.length;
+        const heard0 = (await s.request('GET', '/api/admin/radio90', undefined, ADM)).json.radios.find(i => i.id === '12345').heard;
+        const more = await until(async () => (await s.request('GET', '/api/admin/radio90', undefined, ADM)).json.radios.find(i => i.id === '12345').heard > heard0, 8000, 300);
+        check('inspelning av: meddelandena kommer ändå', !!more);
+        check('inspelning av: inga nya inspelningar', (await s.request('GET', `/api/admin/mottagare/${id}/recordings`, undefined, ADM)).json.recordings.length === nRec);
+        r = await s.request('PUT', `/api/admin/mottagare/${id}`, { config: { record: true, decode: false } }, ADM);
+        await until(async () => (await list())[0].config_applied, 4000);
+        await sleep(800);
+        const heard1 = (await s.request('GET', '/api/admin/radio90', undefined, ADM)).json.radios.find(i => i.id === '12345').heard;
+        await sleep(3500);
+        check('avkodning av: inga nya meddelanden', (await s.request('GET', '/api/admin/radio90', undefined, ADM)).json.radios.find(i => i.id === '12345').heard === heard1);
+        check('avkodning av: livssignalen säger avstängd', (await list())[0].status.decoder.enabled === false);
+        r = await s.request('PUT', `/api/admin/mottagare/${id}`, { config: { decode: true } }, ADM);
 
         // 4. Ändringar
         const nArgs = rtlArgs().length;

@@ -5,6 +5,8 @@
 //  - portal.js    inställningssidan på port 80
 //  - dispatch.js  anmälan, inställningar och kommandon från Dispatch, livssignal, uppladdning
 //  - sdr.js       rtl_fm och squelchen (squelch.js), inspelningarna läggs i kön (queue.js)
+//  - ffsk.js      (0.2.0) avkodar FFSK i varje avsnitt som squelchen släpper igenom; aurora.js tolkar Aurora-meddelandet.
+//                 Meddelandena läggs i msgqueue.js och skickas till Dispatch (POST /api/mottagare/messages).
 // Kommandon från Dispatch: restart (programmet avslutas och systemd startar det igen), reboot (sudo reboot) och
 // update (bin/uppdatera.sh körs som en egen systemd-enhet, så att den överlever att tjänsten startas om).
 // Efter 15 s skrivs <körmapp>/ok med versionen; uppdateringen väntar på den filen innan den godkänner en ny version.
@@ -18,6 +20,9 @@ const VERSION = require('../package.json').version;
 const state = require('./state');
 const system = require('./system');
 const { Queue } = require('./queue');
+const { MsgQueue } = require('./msgqueue');
+const ffsk = require('./ffsk');
+const aurora = require('./aurora');
 const { Sdr } = require('./sdr');
 const { wav } = require('./wav');
 const { NetManager } = require('./net');
@@ -41,8 +46,32 @@ if (!state.get().dispatch_url && process.env.MOTTAGARE_DISPATCH_URL) {
 }
 
 const queue = new Queue(path.join(state.DIR, 'kö'));
+const msgs = new MsgQueue(state.DIR);
+const decoded = { count: 0, last_at: null, last_id: null, errors: 0 };
+const cfg = () => state.get().config || {};
 const sdr = new Sdr({
     onRecording: (r) => {
+        // Avkoda varje avsnitt (även korta och när inspelning är avstängd)
+        if (cfg().decode !== false) {
+            try {
+                const frames = ffsk.decode(r.samples, r.rate);
+                const t0 = Date.parse(r.at);
+                const list = frames.map(fr => {
+                    const p = aurora.parse(fr.payload);
+                    return { at: new Date(t0 + Math.round(fr.at_s * 1000)).toISOString(), freq_hz: r.freq_hz, level_db: r.level_db, sync: fr.sync,
+                             inverted: fr.inverted, codewords: fr.codewords, address: fr.address, payload: fr.payload, id: p.id, fix: p.fix };
+                });
+                if (list.length) {
+                    msgs.add(list);
+                    decoded.count += list.length;
+                    decoded.last_at = list[list.length - 1].at;
+                    decoded.last_id = list[list.length - 1].id;
+                    for (const m of list) log(`avkodat: ID ${m.id || '?'}${m.fix ? '' : ' (ingen GPS-fix)'} ${m.payload}`);
+                    client.uploadMessages();
+                }
+            } catch (e) { decoded.errors++; log('avkodningen misslyckades:', e.message); }
+        }
+        if (cfg().record === false || r.short) return;
         const meta = { at: r.at, duration_ms: r.duration_ms, freq_hz: r.freq_hz, level_db: r.level_db, cut: !!r.cut };
         queue.add(meta, wav(r.samples, r.rate));
         log(`inspelning ${r.duration_ms} ms${r.cut ? ' (max längd)' : ''}, ${r.level_db} dB under bruset`);
@@ -64,7 +93,8 @@ function statusFn() {
         hotspot: { active: n.hotspot, ssid: ssid(), psk: psk() },
         sdr: { state: s.state, error: s.error, freq_hz: s.freq_hz, noise_db: s.noise_db === undefined ? null : s.noise_db, level_db: s.level_db === undefined ? null : s.level_db,
                open: !!s.open, recordings: s.recordings, devices: s.devices },
-        queue: queue.stats(), last_update: lastUpdate
+        queue: Object.assign(queue.stats(), { messages: msgs.length }), last_update: lastUpdate,
+        decoder: { enabled: cfg().decode !== false, count: decoded.count, last_at: decoded.last_at, last_id: decoded.last_id, errors: decoded.errors }
     };
 }
 
@@ -75,7 +105,7 @@ async function onConfig(cfg) {
     if (before !== p) { state.set({ applied_psk: p }); if (before) await net.restartHotspotIfActive(); }
 }
 
-const client = new DispatchClient({ version: VERSION, hwId, model, hostname: system.hostname(), statusFn, onConfig, queue,
+const client = new DispatchClient({ version: VERSION, hwId, model, hostname: system.hostname(), statusFn, onConfig, queue, msgs,
     onCommand: (c) => runCommand(c).catch(e => log('kommandot misslyckades:', e.message)) });
 
 async function runCommand(c) {

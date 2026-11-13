@@ -10,7 +10,7 @@ const bits = Array.from({ length: 1200 }, (_, i) => (i * 7919 % 13) > 6 ? 1 : 0)
 let recs = [];
 let q = new Squelch({ config: { squelch_db: 10, record_max_s: 30, freq_hz: 69718750 }, onRecording: (r) => recs.push(r) });
 q.push(L.toBuf(L.concat(L.noise(3, RATE), L.ffsk(bits, RATE), L.noise(2, RATE))));
-check('en inspelning av en sekund FFSK', recs.length === 1, recs.map(r => r.duration_ms));
+check('en inspelning av en sekund FFSK', recs.length === 1 && !recs[0].short, recs.map(r => r.duration_ms));
 const r = recs[0] || {};
 check('längden är signalen + förinspelning + eftersläp (1,0–1,8 s)', r.duration_ms >= 1000 && r.duration_ms <= 1800, r.duration_ms);
 check('frekvensen följer med', r.freq_hz === 69718750);
@@ -20,7 +20,7 @@ check('squelchen är stängd efteråt', !q.open && q.status().noise_db !== null,
 recs = [];
 q = new Squelch({ config: { squelch_db: 10 }, onRecording: (x) => recs.push(x) });
 q.push(L.toBuf(L.concat(L.noise(2, RATE), L.tone(0.06, 1500, RATE), L.noise(2, RATE))));
-check('en kort spik (60 ms) blir ingen inspelning', recs.length === 0, recs.map(x => x.duration_ms));
+check('en kort spik (60 ms) blir ett kort avsnitt (bara för avkodaren)', recs.length <= 1 && recs.every(x => x.short), recs.map(x => [x.duration_ms, x.short]));
 
 recs = [];
 q = new Squelch({ config: { squelch_db: 10, record_max_s: 5 }, onRecording: (x) => recs.push(x) });
@@ -31,7 +31,7 @@ check('bärvåg i 12 s med max 5 s: en inspelning på 5 s, sedan inget förrän 
 recs = [];
 q = new Squelch({ config: { squelch_db: 10, record: false }, onRecording: (x) => recs.push(x) });
 q.push(L.toBuf(L.concat(L.noise(2, RATE), L.tone(2, 1200, RATE), L.noise(1, RATE))));
-check('inspelning av: squelchen öppnar men inget spelas in', recs.length === 0 && q.status().recordings === 0);
+check('inspelning av: avsnittet går till avkodaren men räknas inte som inspelning', recs.length === 1 && q.status().recordings === 0);
 
 recs = [];
 q = new Squelch({ config: { squelch_db: 40 }, onRecording: (x) => recs.push(x) });
