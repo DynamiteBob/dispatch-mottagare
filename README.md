@@ -50,7 +50,7 @@ sudo dispatch-mottagare omstart      starta om programmet
 
 ## Uppdateringar
 
-Knappen Uppdatera i Dispatch hämtar den senaste taggen (`v0.1.0`, `v0.1.1` …) från det här repot. Startar den nya versionen inte inom 90 sekunder går mottagaren tillbaka till den förra. Resultatet visas på mottagaren i Dispatch.
+Knappen Uppdatera i Dispatch hämtar den senaste taggen (`0.3.0`, `0.3.1` …) från det här repot. Taggarna skapas automatiskt när versionen ändras. Det som ligger på `main` utan tagg installeras aldrig. Startar den nya versionen inte inom 90 sekunder går mottagaren tillbaka till den förra. Resultatet visas på mottagaren i Dispatch.
 
 ## Mappar på Pi:n
 

@@ -9,7 +9,7 @@
 #  - paketen git, nodejs, rtl-sdr, network-manager, dnsmasq-base
 #  - Linux egen DVB-drivrutin för stickan stängs av (annars kommer rtl_fm inte åt den)
 #  - användaren mottagare (systemanvändare) med rätt till USB-stickan och sudo för nmcli, reboot och uppdateringen
-#  - programmet i /opt/dispatch-mottagare (git, senaste taggen v*), inställningarna i /var/lib/dispatch-mottagare
+#  - programmet i /opt/dispatch-mottagare (git, senaste taggen, som heter som versionen utan v), inställningarna i /var/lib/dispatch-mottagare
 #  - tjänsten dispatch-mottagare (systemd) som startar vid uppstart och startas om om den stannar
 #  - NetworkManagers dnsmasq svarar 10.42.0.1 på alla namn när hotspoten är igång (telefonen öppnar inställningssidan)
 # ============================================================================
@@ -58,11 +58,12 @@ else
     rm -rf "$DIR"
     git clone --quiet "$REPO" "$DIR"
 fi
-TAG=$(git -C "$DIR" tag -l 'v*' --sort=-v:refname | head -1)
-if [ -n "$TAG" ]; then git -C "$DIR" -c advice.detachedHead=false checkout --quiet --force "$TAG"; else git -C "$DIR" checkout --quiet --force origin/main; fi
+TAG=$(git -C "$DIR" tag -l '[0-9]*' --sort=-v:refname | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | head -1 || true)
+[ -n "$TAG" ] || { echo "Det finns ingen version att installera (inga taggar på GitHub)." >&2; exit 1; }
+git -C "$DIR" -c advice.detachedHead=false checkout --quiet --force "$TAG"
 chown -R root:root "$DIR"
 VERSION=$(node -p "require('$DIR/package.json').version")
-echo "Version $VERSION (${TAG:-main})"
+echo "Version $VERSION"
 ln -sf "$DIR/bin/uppdatera.sh" /usr/local/sbin/dispatch-mottagare-uppdatera
 ln -sf "$DIR/bin/dispatch-mottagare" /usr/local/bin/dispatch-mottagare
 chmod 755 "$DIR/bin/uppdatera.sh" "$DIR/bin/dispatch-mottagare"

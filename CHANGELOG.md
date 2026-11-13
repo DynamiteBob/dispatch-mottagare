@@ -3,12 +3,22 @@
 Alla ändringar som märks för den som använder eller sköter mottagarna skrivs här, nyast överst.
 
 Versionsnumret står i `package.json` (fältet `"version"`) och är det enda stället där versionen anges.
-Format: `0.<release>.<rättning>`. Varje version taggas `v<version>`; knappen Uppdatera programvaran i Dispatch hämtar den senaste taggen.
+Format: `0.<release>.<rättning>`. Varje version taggas med versionen utan v (till exempel `0.3.1`). Taggen och releasen på GitHub skapas automatiskt när versionen ändras. Knappen Uppdatera programvaran i Dispatch hämtar den senaste taggen.
 
 Rubrikerna under varje version:
 - **Nytt** – nya funktioner
 - **Ändrat** – funktioner som fungerar annorlunda än tidigare
 - **Rättat** – fel som har rättats
+
+## 0.3.1 – 2026-11-13
+
+### Ändrat
+- Uppdateringen och installationen använder taggar som heter som versionen, utan v (till exempel 0.3.1). Det är så taggarna heter på GitHub.
+- Finns ingen tagg att uppdatera till står det i resultatet i Dispatch. Tidigare tog mottagaren då det senaste på `main`, som kunde vara en version som inte var släppt.
+- Taggen och releasen på GitHub skapas automatiskt när en ny version läggs upp.
+
+### Rättat
+- Uppdatera programvaran hittade inte taggarna 0.1.0–0.3.0, eftersom den letade efter taggar som började med v.
 
 ## 0.3.0 – 2026-11-13
 

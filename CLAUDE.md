@@ -9,8 +9,10 @@ leverera genom push till `main`, skriv text enligt skillen naturlig-text.
 - Node.js utan npm-paket (Node 18 eller senare, det som följer med Raspberry Pi OS). Lägg inte till beroenden.
 - Körs som tjänsten `dispatch-mottagare` (användaren `mottagare`, inte root). sudo bara för `nmcli`, `reboot` och
   uppdateringen (`/etc/sudoers.d/dispatch-mottagare` i `install.sh`).
-- Versionen står bara i `package.json`, formatet `0.<release>.<rättning>`. Varje version taggas `v<version>`;
-  knappen Uppdatera i Dispatch hämtar den senaste taggen. Utan tagg når en ändring inte Pi:erna.
+- Versionen står bara i `package.json`, formatet `0.<release>.<rättning>`. Varje version taggas med versionen utan v (`0.3.1`).
+  Taggen och releasen skapas automatiskt av GitHub Actions (`.github/workflows/tagg.yml`) när versionen ändras på `main`;
+  releasens text är versionens avsnitt i `CHANGELOG.md`. Skapa inga taggar för hand (sessionens git-proxy släpper inte igenom dem).
+  Knappen Uppdatera i Dispatch och `install.sh` tar den senaste taggen som heter x.y.z; `main` används aldrig.
 - Varje ny version skrivs i `CHANGELOG.md`, nyast överst, med rubrikerna Nytt, Ändrat och Rättat. Texten ska gå att förstå
   för den som sköter mottagarna. Kräver versionen en viss version av Dispatch står det först under versionen.
 

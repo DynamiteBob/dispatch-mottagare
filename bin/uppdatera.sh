@@ -1,6 +1,6 @@
 #!/bin/bash
 # ============================================================================
-# Uppdaterar Dispatch-mottagaren till den senaste taggen v* (utan taggar: main) och går tillbaka om den nya versionen
+# Uppdaterar Dispatch-mottagaren till den senaste taggen (versionen utan v, till exempel 0.3.1) och går tillbaka om den nya versionen
 # inte startar. Körs som root: av kommandot Uppdatera i Dispatch (via systemd-run, så att skriptet överlever att tjänsten
 # startas om) eller med sudo dispatch-mottagare uppdatera.
 # Resultatet skrivs i /var/lib/dispatch-mottagare/uppdatering.json: { at, ok, from, to, message }. Programmet skickar det
@@ -35,8 +35,12 @@ if ! git fetch --quiet --tags --force origin 2>/tmp/dispatch-mottagare-fetch.log
     result false "$FROM" "$FROM" "Kunde inte hämta från GitHub: $(tail -1 /tmp/dispatch-mottagare-fetch.log)"
     exit 1
 fi
-TARGET=$(git tag -l 'v*' --sort=-v:refname | head -1)
-[ -n "$TARGET" ] || TARGET=origin/main
+# 0.3.1: bara taggar som heter som en version (x.y.z, utan v); main används aldrig
+TARGET=$(git tag -l '[0-9]*' --sort=-v:refname | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | head -1 || true)
+if [ -z "$TARGET" ]; then
+    result false "$FROM" "$FROM" "Det finns ingen version att uppdatera till (inga taggar på GitHub)."
+    exit 1
+fi
 NEW=$(git rev-parse "$TARGET^{commit}")
 if [ "$NEW" = "$PREV" ]; then
     result true "$FROM" "$FROM" "Redan senaste versionen ($FROM)."

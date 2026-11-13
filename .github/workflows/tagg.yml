@@ -1,0 +1,47 @@
+# Skapar taggen och releasen för versionen i package.json när den ändras på main.
+# Taggen heter som versionen, utan v (till exempel 1.63.12). Releasens text är versionens avsnitt i CHANGELOG.md.
+# Taggen sätts på den commit där versionen ändrades, även om fler commits har kommit efter i samma push.
+# Finns taggen redan händer ingenting. Kan också köras för hand under Actions → Tagg och release → Run workflow.
+name: Tagg och release
+
+on:
+  push:
+    branches: [main]
+    paths: [package.json]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: tagg-och-release
+  cancel-in-progress: false
+
+jobs:
+  tagg:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Skapa tagg och release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          V=$(node -p "require('./package.json').version")
+          if ! [[ "$V" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Versionen i package.json ser inte ut som x.y.z: $V"
+            exit 1
+          fi
+          if git ls-remote --exit-code --tags origin "refs/tags/$V" >/dev/null; then
+            echo "Taggen $V finns redan."
+            exit 0
+          fi
+          SHA=$(git log -1 --format=%H -S"\"version\": \"$V\"" -- package.json)
+          [ -n "$SHA" ] || SHA=$GITHUB_SHA
+          awk -v v="$V" '/^## /{ if (f) exit; if ($2 == v) { f = 1; next } } f' CHANGELOG.md > notes.md
+          [ -s notes.md ] || echo "Se CHANGELOG.md." > notes.md
+          gh release create "$V" --target "$SHA" --title "$V" --notes-file notes.md
+          echo "Skapade taggen och releasen $V på $SHA."
