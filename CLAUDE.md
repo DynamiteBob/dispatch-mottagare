@@ -11,6 +11,8 @@ leverera genom push till `main`, skriv text enligt skillen naturlig-text.
   uppdateringen (`/etc/sudoers.d/dispatch-mottagare` i `install.sh`).
 - Versionen står bara i `package.json`, formatet `0.<release>.<rättning>`. Varje version taggas `v<version>`;
   knappen Uppdatera i Dispatch hämtar den senaste taggen. Utan tagg når en ändring inte Pi:erna.
+- Varje ny version skrivs i `CHANGELOG.md`, nyast överst, med rubrikerna Nytt, Ändrat och Rättat. Texten ska gå att förstå
+  för den som sköter mottagarna. Kräver versionen en viss version av Dispatch står det först under versionen.
 
 ## Delarna
 
