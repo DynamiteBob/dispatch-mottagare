@@ -2,7 +2,8 @@
 // RTL-SDR via rtl_fm
 //
 // rtl_fm ställs in på frekvensen och FM-demodulerar: rtl_fm -f <Hz> -M fm -s 24000 -E dc [-g dB] [-p ppm] [-d <serienummer>] -
-// Utdata är 16-bitars ljud i 24 kHz som går till squelchen (squelch.js). rtl_fm:s egen squelch används inte.
+// Utdata är 16-bitars ljud i 24 kHz som går till squelchen (squelch.js, inspelningarna) och, när decode inte är av,
+// till avkodaren (ffskstream.js, 0.3.0), som lyssnar på hela strömmen oberoende av squelchen. rtl_fm:s egen squelch används inte.
 //  - Stickorna listas ur /sys/bus/usb/devices (Realtek 0bda:2838/2832), utan att öppna dem.
 //  - Startar inte rtl_fm (fel, stickan saknas eller upptagen) försöker den igen efter 5 s, sedan längre (högst 60 s).
 //  - Kommer inget ljud på 10 s startas rtl_fm om (stickor kan sluta leverera utan att processen dör).
@@ -15,6 +16,7 @@ const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
 const { Squelch, RATE } = require('./squelch');
+const { FfskStream } = require('./ffskstream');
 const log = require('./log')('SDR');
 
 const RTL_FM = process.env.MOTTAGARE_RTL_FM || 'rtl_fm';
@@ -37,7 +39,7 @@ function listDevices() {
 }
 
 class Sdr {
-    constructor({ onRecording }) {
+    constructor({ onRecording, onFrames, onDecodeError }) {
         this.config = {};
         this.proc = null;
         this.state = 'no_freq';
@@ -46,6 +48,9 @@ class Sdr {
         this.timer = null;
         this.lastData = 0;
         this.squelch = new Squelch({ rate: RATE, onRecording: (r) => onRecording(r) });
+        const sq = this.squelch;
+        this.stream = new FfskStream({ rate: RATE, onFrames: (l) => { if (onFrames) onFrames(l, this.config.freq_hz || 0); }, onError: (e) => { if (onDecodeError) onDecodeError(e); },
+            info: () => ({ open: sq.open, quiet: sq.noise !== null && sq.level !== null ? sq.noise - sq.level : null }) });
         this.stallTimer = setInterval(() => this.checkStall(), 2000);
         this.stallTimer.unref();
     }
@@ -58,6 +63,7 @@ class Sdr {
         const old = this.config;
         this.config = Object.assign({}, config);
         this.squelch.setConfig(this.config);
+        if ((old.decode !== false) !== (this.config.decode !== false)) this.stream.reset();
         const keys = ['freq_hz', 'gain', 'ppm', 'device'];
         if (this.proc && keys.every(k => old[k] === this.config[k])) return;
         this.retryMs = 5000;
@@ -87,6 +93,7 @@ class Sdr {
         this.state = 'starting';
         this.error = null;
         this.squelch.reset();
+        this.stream.reset();
         const args = this.args();
         log(`startar ${RTL_FM} ${args.join(' ')}`);
         let p;
@@ -98,7 +105,9 @@ class Sdr {
             if (this.proc !== p) return;
             this.lastData = Date.now();
             if (this.state !== 'running') { this.state = 'running'; this.retryMs = 5000; }
-            this.squelch.push(b.length & 1 ? b.subarray(0, b.length - 1) : b);
+            const even = b.length & 1 ? b.subarray(0, b.length - 1) : b;
+            this.squelch.push(even);
+            if (this.config.decode !== false) this.stream.push(even);
         });
         p.stderr.on('data', (b) => { for (const l of String(b).split('\n')) if (l.trim()) { errLines.push(l.trim()); if (errLines.length > 20) errLines.shift(); } });
         p.on('error', (e) => { if (this.proc === p) { this.proc = null; this.fail(e.code === 'ENOENT' ? `${RTL_FM} saknas. Installera paketet rtl-sdr.` : e.message); } });

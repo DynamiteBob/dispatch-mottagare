@@ -10,6 +10,15 @@ Rubrikerna under varje version:
 - **Ändrat** – funktioner som fungerar annorlunda än tidigare
 - **Rättat** – fel som har rättats
 
+## 0.3.0 – 2026-11-13
+
+Fungerar med Dispatch 1.63.10. Dispatch 1.63.11 visar också hur många meddelanden som kom medan squelchen var stängd.
+
+### Ändrat
+- Avkodaren lyssnar på hela ljudströmmen hela tiden, oberoende av squelchen. Sändningar som är för svaga för att öppna squelchen avkodas nu också, och en squelch som öppnar sent kan inte längre klippa bort början av ett meddelande.
+- Squelchen styr bara inspelningarna. Med inspelning avstängd påverkar squelchinställningen ingenting.
+- Livssignalen till Dispatch visar hur många meddelanden som avkodades medan squelchen var stängd.
+
 ## 0.2.0 – 2026-11-13
 
 Kräver Dispatch 1.63.10 eller senare för att positionerna ska synas i Dispatch.

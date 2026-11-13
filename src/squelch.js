@@ -7,9 +7,9 @@
 //  - brusnivån (noise_db) följer den nivån när squelchen är stängd: snabbt uppåt, långsamt nedåt
 //  - squelchen öppnar när nivån ligger squelch_db under brusnivån i två block i rad (40 ms)
 //  - den stänger när nivån varit över gränsen + 3 dB i HANG_MS (300 ms)
-// Ett avsnitt börjar PRE_MS (300 ms) före öppningen och slutar när squelchen stänger. Alla avsnitt går till onRecording
-// (0.2.0: avkodaren behöver även korta skurar); ett avsnitt där squelchen var öppen kortare än MIN_MS får short = true,
-// och main.js laddar bara upp avsnitt som inte är korta när inspelning är påslagen.
+// Ett avsnitt börjar PRE_MS (300 ms) före öppningen och slutar när squelchen stänger. Ett avsnitt där squelchen var
+// öppen kortare än MIN_MS kastas (en brusspik). Med inspelning avstängd skickas inga avsnitt alls.
+// Squelchen styr bara inspelningarna: avkodaren (ffskstream.js) lyssnar på hela strömmen sedan 0.3.0.
 // Når avsnittet record_max_s skickas det, och inget mer tas med förrän squelchen har stängt (stuck = true), så att en
 // bärvåg som ligger kvar inte fyller Dispatch med inspelningar.
 // ============================================================================
@@ -135,7 +135,8 @@ class Squelch {
         const short = durMs < MIN_MS + PRE_MS + HANG_MS && !cut;
         const q = r.quiet.slice().sort((a, b) => a - b);
         const quiet = q.length ? q[Math.floor(q.length / 2)] : null;
-        if (!short && this.record) this.count++;
+        if (short || !this.record) return;
+        this.count++;
         this.onRecording({ short, at: new Date(r.at).toISOString(), duration_ms: durMs, samples, rate: this.rate, freq_hz: this.freq,
                            level_db: quiet === null ? null : Math.round(quiet * 10) / 10, cut });
     }

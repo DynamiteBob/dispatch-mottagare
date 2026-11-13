@@ -1,6 +1,6 @@
 # Dispatch-mottagare
 
-Program för en Raspberry Pi med en RTL-SDR-sticka. Mottagaren lyssnar på en frekvens och avkodar positionerna som Ericsson Aurora (C50) skickar med FFSK. Positionerna skickas till Dispatch och visas i lagret Radio 90 på kartan. Mottagaren kan också spela in det som squelchen öppnar för och skicka inspelningarna till Dispatch.
+Program för en Raspberry Pi med en RTL-SDR-sticka. Mottagaren lyssnar på en frekvens och avkodar positionerna som Ericsson Aurora (C50) skickar med FFSK. Positionerna skickas till Dispatch och visas i lagret Radio 90 på kartan. Avkodaren lyssnar hela tiden, oberoende av squelchen. Mottagaren kan också spela in det som squelchen öppnar för och skicka inspelningarna till Dispatch; squelchen styr bara inspelningarna.
 
 Formatet står i [docs/aurora-ffsk.md](docs/aurora-ffsk.md).
 

@@ -20,7 +20,7 @@ check('squelchen är stängd efteråt', !q.open && q.status().noise_db !== null,
 recs = [];
 q = new Squelch({ config: { squelch_db: 10 }, onRecording: (x) => recs.push(x) });
 q.push(L.toBuf(L.concat(L.noise(2, RATE), L.tone(0.06, 1500, RATE), L.noise(2, RATE))));
-check('en kort spik (60 ms) blir ett kort avsnitt (bara för avkodaren)', recs.length <= 1 && recs.every(x => x.short), recs.map(x => [x.duration_ms, x.short]));
+check('en kort spik (60 ms) kastas', recs.length === 0, recs.map(x => [x.duration_ms, x.short]));
 
 recs = [];
 q = new Squelch({ config: { squelch_db: 10, record_max_s: 5 }, onRecording: (x) => recs.push(x) });
@@ -31,7 +31,7 @@ check('bärvåg i 12 s med max 5 s: en inspelning på 5 s, sedan inget förrän 
 recs = [];
 q = new Squelch({ config: { squelch_db: 10, record: false }, onRecording: (x) => recs.push(x) });
 q.push(L.toBuf(L.concat(L.noise(2, RATE), L.tone(2, 1200, RATE), L.noise(1, RATE))));
-check('inspelning av: avsnittet går till avkodaren men räknas inte som inspelning', recs.length === 1 && q.status().recordings === 0);
+check('inspelning av: inga avsnitt och inga inspelningar räknas', recs.length === 0 && q.status().recordings === 0);
 
 recs = [];
 q = new Squelch({ config: { squelch_db: 40 }, onRecording: (x) => recs.push(x) });

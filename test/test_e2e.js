@@ -4,7 +4,8 @@
 //  1. inget nät efter start: hotspoten startar; fel lösenord: hotspoten tillbaka; rätt lösenord: ansluten
 //  2. Dispatch-adressen på inställningssidan → anmälan med kod → godkänns i Dispatch
 //  3. frekvens i Dispatch → rtl_fm startar inom en sekund, inspelningar kommer fram och går att ladda ner
-//     (0.2.0) FFSK-skuren (Aurora, påhittade värden) avkodas och syns som Radio 90 i Dispatch; inspelning och avkodning av
+//     (0.2.0) FFSK-skuren (Aurora, påhittade värden) avkodas och syns som Radio 90 i Dispatch; inspelning och avkodning av;
+//     (0.3.0) avkodning med squelchen stängd
 //  4. förstärkning ändras → rtl_fm startas om med -g; squelch ändras → rtl_fm startas inte om
 //  5. Starta om programmet (avslutas, startas igen med samma nyckel), Uppdatera (resultatet kommer tillbaka)
 //  6. mottagaren tystnar → Tyst i Dispatch och i aktivitetsloggen, tillbaka → kontakt igen
@@ -147,6 +148,10 @@ const form = (p, o) => portal(p, { method: 'POST', headers: { 'content-type': 'a
         check('avkodning av: inga nya meddelanden', (await s.request('GET', '/api/admin/radio90', undefined, ADM)).json.radios.find(i => i.id === '12345').heard === heard1);
         check('avkodning av: livssignalen säger avstängd', (await list())[0].status.decoder.enabled === false);
         r = await s.request('PUT', `/api/admin/mottagare/${id}`, { config: { decode: true } }, ADM);
+        // 0.3.0: avkodaren lyssnar hela tiden, även när squelchen inte öppnar (40 dB)
+        r = await s.request('PUT', `/api/admin/mottagare/${id}`, { config: { squelch_db: 40 } }, ADM);
+        const outside = await until(async () => { const d = (await list())[0].status.decoder; return d && d.enabled && d.outside_squelch > 0 ? d : null; }, 10000, 300);
+        check('squelch 40 dB: avkodas ändå, räknas som utanför squelchen', !!outside, (await list())[0].status.decoder);
 
         // 4. Ändringar
         const nArgs = rtlArgs().length;
