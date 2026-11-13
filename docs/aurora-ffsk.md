@@ -22,7 +22,7 @@ Varje kodord är 64 bitar, mest signifikanta biten först:
 
 Ett kodord räknas som rätt bara när både kontrollsumman och pariteten stämmer. Avkodaren läser kodord efter synkordet tills ett är fel (högst åtta) och kräver minst två, där det första börjar med en etta (adresskodord).
 
-Det första kodordet har hittills alltid varit `810004E02000`. De tre följande ger 18 byte data.
+Det första kodordet har hittills alltid varit `810004E02000`. De tre följande ger 18 byte data. En ram med färre än fyra kodord har brutits av (oftast svag signal); mottagaren skickar den inte till Dispatch utan räknar den som ofullständig.
 
 ## Data (18 byte)
 
@@ -32,12 +32,14 @@ Det första kodordet har hittills alltid varit `810004E02000`. De tre följande 
 | 1 | `12` i alla meddelanden hittills, troligen vilka fält som är med | `12` |
 | 2–5 | latitud, BCD gg mm mmmm | `59 20 12 34` = 59° 20,1234′ N |
 | 6–10 | longitud, BCD ggg h mm mmmm. h är ett halvbyte, troligen väderstreck, `0` i Sverige | `01 80 04 56 78` = 018° 04,5678′ E |
-| 11–12 | fart i km/h, BCD. `EE EE` utan fix | `00 45` = 45 km/h |
+| 11–12 | fart i tiondels km/h, BCD. `EE EE` utan fix | `03 75` = 37,5 km/h |
 | 13–15 | radions ID, BCD: fem siffror och en extra siffra (#0) | `12 34 50` = 12345 |
 | 16 | status, BCD (W0 W1), `00` = ingen | `33` |
 | 17 | utfyllnad | `00` |
 
-Hela exemplet som hex: `831259201234018004567800451234503300`.
+Hela exemplet som hex: `831259201234018004567803751234503300`.
+
+Farten jämfördes i november 2026 med en telefon med Traccar i samma bil: `0375` när telefonen visade 37,6 km/h.
 
 Utan GPS-fix är positionen nollor och farten `EEEE`, men ID och status är med. Dispatch sparar meddelandet och visar radion som Ingen GPS-fix.
 

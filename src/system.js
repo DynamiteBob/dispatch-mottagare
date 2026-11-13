@@ -6,6 +6,7 @@
 'use strict';
 
 const fs = require('fs');
+const { execFile } = require('child_process');
 const os = require('os');
 const path = require('path');
 
@@ -44,4 +45,19 @@ function diskFreeMb(dir) {
     } catch (e) { return null; }
 }
 
-module.exports = { hwId, model, tempC, ips, diskFreeMb, hostname: () => os.hostname(), uptimeS: () => Math.round(os.uptime()) };
+// 0.3.2: om klockan är synkad med NTP (systemd-timesyncd). Läses med timedatectl högst en gång i minuten.
+// MOTTAGARE_TIMEDATECTL byter programmet i testerna. null = okänt (timedatectl saknas eller svarade inte).
+const TIMEDATECTL = process.env.MOTTAGARE_TIMEDATECTL || 'timedatectl';
+let clockSync = { value: null, at: 0, busy: false };
+function clockSynced() {
+    if (!clockSync.busy && Date.now() - clockSync.at > 60000) {
+        clockSync.busy = true;
+        execFile(TIMEDATECTL, ['show', '-p', 'NTPSynchronized', '--value'], { timeout: 5000 }, (e, out) => {
+            const t = String(out || '').trim();
+            clockSync = { value: e ? null : t === 'yes' ? true : t === 'no' ? false : null, at: Date.now(), busy: false };
+        });
+    }
+    return clockSync.value;
+}
+
+module.exports = { clockSynced, hwId, model, tempC, ips, diskFreeMb, hostname: () => os.hostname(), uptimeS: () => Math.round(os.uptime()) };

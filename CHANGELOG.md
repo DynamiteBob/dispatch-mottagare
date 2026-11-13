@@ -10,6 +10,19 @@ Rubrikerna under varje version:
 - **Ändrat** – funktioner som fungerar annorlunda än tidigare
 - **Rättat** – fel som har rättats
 
+## 0.3.2 – 2026-11-13
+
+Kräver Dispatch 1.63.13 för att klockan och de ofullständiga ramarna ska visas i Adminportalen. Med en äldre Dispatch fungerar mottagaren som förut.
+
+### Nytt
+- Livssignalen talar om ifall mottagarens klocka är synkad med NTP och vad klockan är. Dispatch visar hur mycket den går fel och varnar om det är mer än 5 sekunder, eftersom positionerna får mottagarens tid.
+
+### Ändrat
+- En ram som bröts av innan alla kodord kom fram (färre än fyra kodord, oftast svag signal) skickas inte längre till Dispatch. Den räknas som ofullständig i avkodarens läge.
+
+### Rättat
+- Farten tolkades som hela km/h men är tiondels km/h. 0375 är 37,5 km/h, inte 375 km/h. Jämfört med en telefon med Traccar i samma bil.
+
 ## 0.3.1 – 2026-11-13
 
 ### Ändrat

@@ -5,7 +5,7 @@
 //   1      0x12 (samma i alla meddelanden hittills; troligen vilka fält som är med)
 //   2–5    latitud BCD gg mm mm mm      59 20 12 34    = 59° 20,1234′
 //   6–10   longitud BCD ggg h mm mmmm   01 80 04 56 78 = 018° 04,5678′ (h = ett halvbyte, troligen väderstreck, 0 i Sverige)
-//   11–12  fart BCD km/h (EE EE utan fix)
+//   11–12  fart BCD i tiondels km/h (03 75 = 37,5 km/h; EE EE utan fix)
 //   13–15  ID BCD: fem siffror och en extra siffra (#0)  12 34 50 = 12345, 0
 //   16     status BCD W0 W1 (00 = ingen)
 //   17     utfyllnad
@@ -30,7 +30,7 @@ function parse(payloadHex) {
     const st = digits(bcd([b[16]]));
     out.status = st;
     const sp = digits(bcd(b.slice(11, 13)));
-    out.speed_kmh = sp === null ? null : parseInt(sp, 10);
+    out.speed_kmh = sp === null ? null : parseInt(sp, 10) / 10;   // 0.3.2: tiondels km/h
     const la = digits(bcd(b.slice(2, 6)));
     const lo = bcd(b.slice(6, 11));
     if (out.fix && la && /^\d{3}[0-9a-f]\d{6}$/.test(lo)) {

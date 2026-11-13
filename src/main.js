@@ -47,12 +47,22 @@ if (!state.get().dispatch_url && process.env.MOTTAGARE_DISPATCH_URL) {
 
 const queue = new Queue(path.join(state.DIR, 'kö'));
 const msgs = new MsgQueue(state.DIR);
-const decoded = { count: 0, outside: 0, last_at: null, last_id: null, errors: 0 };
+const decoded = { count: 0, outside: 0, incomplete: 0, last_at: null, last_id: null, errors: 0 };
+// 0.3.2: ett positionsmeddelande har adressen och tre datakodord. En ram med färre kodord är avbruten (svag signal)
+// och skickas inte till Dispatch; den räknas som ofullständig.
+const MIN_CODEWORDS = 4;
+system.clockSynced();
 const cfg = () => state.get().config || {};
 const sdr = new Sdr({
     // 0.3.0: avkodaren lyssnar på hela strömmen (ffskstream.js), oberoende av squelchen och inspelningen
     onFrames: (frames, freq) => {
-        const list = frames.map(fr => {
+        const whole = frames.filter(fr => !(fr.codewords < MIN_CODEWORDS));
+        if (whole.length < frames.length) {
+            decoded.incomplete += frames.length - whole.length;
+            for (const fr of frames) if (fr.codewords < MIN_CODEWORDS) log(`ofullständig ram (${fr.codewords} kodord), skickas inte: ${fr.payload}`);
+        }
+        if (!whole.length) return;
+        const list = whole.map(fr => {
             const p = aurora.parse(fr.payload);
             return { at: fr.at, freq_hz: freq, level_db: fr.level_db, squelch_open: fr.squelch_open, sync: fr.sync,
                      inverted: fr.inverted, codewords: fr.codewords, address: fr.address, payload: fr.payload, id: p.id, fix: p.fix };
@@ -89,7 +99,9 @@ function statusFn() {
         sdr: { state: s.state, error: s.error, freq_hz: s.freq_hz, noise_db: s.noise_db === undefined ? null : s.noise_db, level_db: s.level_db === undefined ? null : s.level_db,
                open: !!s.open, recordings: s.recordings, devices: s.devices },
         queue: Object.assign(queue.stats(), { messages: msgs.length }), last_update: lastUpdate,
-        decoder: { enabled: cfg().decode !== false, count: decoded.count, outside_squelch: decoded.outside, last_at: decoded.last_at, last_id: decoded.last_id, errors: decoded.errors }
+        decoder: { enabled: cfg().decode !== false, count: decoded.count, outside_squelch: decoded.outside, incomplete: decoded.incomplete,
+                   last_at: decoded.last_at, last_id: decoded.last_id, errors: decoded.errors },
+        clock: { synced: system.clockSynced(), now: new Date().toISOString() }   // 0.3.2: Dispatch räknar ut hur mycket klockan går fel
     };
 }
 

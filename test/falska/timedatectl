@@ -1,0 +1,4 @@
+#!/bin/sh
+# Falsk timedatectl för testerna: svarar som "timedatectl show -p NTPSynchronized --value" på en synkad dator.
+# FAKE_NTP byter svaret (yes eller no).
+echo "${FAKE_NTP:-yes}"

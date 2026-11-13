@@ -45,7 +45,7 @@ function startPi() {
     proc = spawn(process.execPath, [path.join(__dirname, '..', 'src', 'main.js')], {
         env: Object.assign({}, process.env, {
             MOTTAGARE_STATE_DIR: STATE, MOTTAGARE_RUN_DIR: RUN, MOTTAGARE_PORTAL_PORT: String(PORTAL), MOTTAGARE_PORTAL_OPEN: '1',
-            MOTTAGARE_SUDO: '', MOTTAGARE_NMCLI: path.join(F, 'nmcli'), MOTTAGARE_RTL_FM: path.join(F, 'rtl_fm'), MOTTAGARE_UPDATER: path.join(F, 'uppdatera'),
+            MOTTAGARE_SUDO: '', MOTTAGARE_NMCLI: path.join(F, 'nmcli'), MOTTAGARE_RTL_FM: path.join(F, 'rtl_fm'), MOTTAGARE_UPDATER: path.join(F, 'uppdatera'), MOTTAGARE_TIMEDATECTL: path.join(F, 'timedatectl'),
             MOTTAGARE_HW_ID: '10000000e2e0ab12', MOTTAGARE_HB_MS: '1000', MOTTAGARE_BOOT_MS: '1500', MOTTAGARE_NET_TICK_MS: '300', MOTTAGARE_OK_MS: '500',
             FAKE_NM_DIR: NM, FAKE_RTL_LOG: RTL_LOG
         }), stdio: ['ignore', 'pipe', 'pipe'] });
@@ -128,9 +128,11 @@ const form = (p, o) => portal(p, { method: 'POST', headers: { 'content-type': 'a
         // 3b. Radio 90: FFSK-skuren avkodas i Pi:n och tolkas i Dispatch
         const r90 = await until(async () => { const j = (await s.request('GET', '/api/karta/radio90', undefined, ADM)).json; return (j.items || []).find(i => i.id === '12345'); }, 12000, 300);
         check('Radio 90: radion 12345 med position i Dispatch', r90 && r90.fix && Math.abs(r90.position.lat - (59 + 20.1234 / 60)) < 1e-5 && Math.abs(r90.position.lon - (18 + 4.5678 / 60)) < 1e-5
-              && r90.speed_kmh === 45 && r90.status === '33' && r90.receivers.includes('Mottagare Ljusdal'), r90 || out.slice(-600));
+              && r90.speed_kmh === 4.5 && r90.status === '33' && r90.receivers.includes('Mottagare Ljusdal'), r90 || out.slice(-600));
         const dec = await until(async () => { const x = (await list())[0]; return x.status.decoder && x.status.decoder.count > 0 ? x.status.decoder : null; }, 5000);
-        check('livssignalen: avkodarens läge', dec && dec.enabled && dec.last_id === '12345', dec);
+        check('livssignalen: avkodarens läge', dec && dec.enabled && dec.last_id === '12345' && dec.incomplete === 0, dec);
+        const clk = await until(async () => { const x = (await list())[0]; return x.status.clock && x.status.clock.synced === true ? x.status.clock : null; }, 5000);
+        check('livssignalen: klockan synkad och rätt', clk && Math.abs(clk.offset_s) < 3, clk);
         // Inspelning av: meddelandena kommer ändå, inga nya inspelningar
         r = await s.request('PUT', `/api/admin/mottagare/${id}`, { config: { record: false } }, ADM);
         await until(async () => (await list())[0].config_applied, 4000);

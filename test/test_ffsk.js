@@ -31,7 +31,7 @@ check('adressen och data som skickades', fr[0] && fr[0].address === ADDR && fr[0
 check('tiden i inspelningen (efter 0,3 s brus och förspelet)', fr[0] && Math.abs(fr[0].at_s - (0.3 + 24 / 1200)) < 0.01, fr[0] && fr[0].at_s);
 let p = aurora.parse(P1);
 check('tolkningen: ID, fix, position, fart och status', p.known && p.id === '12345' && p.id_ext === '0' && p.fix && Math.abs(p.lat - (59 + 20.1234 / 60)) < 1e-6
-    && Math.abs(p.lon - (18 + 4.5678 / 60)) < 1e-6 && p.speed_kmh === 45 && p.status === '33', p);
+    && Math.abs(p.lon - (18 + 4.5678 / 60)) < 1e-6 && p.speed_kmh === 4.5 && p.status === '33', p);
 
 // Utan fix
 fr = ffsk.decode(signal(ffsk.encodeBits(infos(NOFIX))), RATE);

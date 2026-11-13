@@ -29,6 +29,8 @@ leverera genom push till `main`, skriv text enligt skillen naturlig-text.
   Aurora-meddelandet; `src/msgqueue.js` är kön för meddelandena (`meddelanden.json`). Dispatch tolkar om rådata själv
   (`radio90.js` i Dispatch-repot), så ett fel i tolkningen kan rättas i Dispatch utan att mottagarna uppdateras.
   Formatet: `docs/aurora-ffsk.md`. Inställningarna `decode` (förvalt på) och `record` styr avkodning och inspelning var för sig.
+- `src/system.js` läser datorns uppgifter, och sedan 0.3.2 om klockan är synkad (`timedatectl`, `MOTTAGARE_TIMEDATECTL` i testerna).
+  Livssignalen har `clock: { synced, now }`; Dispatch räknar ut skillnaden. Ramar med färre än fyra kodord skickas inte (`decoder.incomplete`).
 - `bin/uppdatera.sh` uppdaterar och går tillbaka om den nya versionen inte skriver `/run/dispatch-mottagare/ok`.
 - `bin/dispatch-mottagare` är kommandoraden.
 
@@ -38,7 +40,7 @@ Dispatch-sidan finns i `mottagare.js` och `radio90.js` i Dispatch-repot (API), "
 
 ## Tester
 
-`node test/kor_alla.js`. `test_e2e.js` kräver Dispatch-repot bredvid eller `DISPATCH_DIR`. Falska `nmcli`, `rtl_fm`
+`node test/kor_alla.js`. `test_e2e.js` kräver Dispatch-repot bredvid eller `DISPATCH_DIR`. Falska `nmcli`, `rtl_fm`, `timedatectl`
 och uppdatering finns i `test/falska/`. Miljövariablerna `MOTTAGARE_*` (se källfilerna) byter sökvägar och tider i testerna.
 
 ## Integritet
