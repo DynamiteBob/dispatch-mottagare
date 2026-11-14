@@ -20,7 +20,7 @@ process.env.FAKE_RTL_LOG = FM_LOG;
 const ffsk = require('../src/ffsk');
 const { IqDemod, QUANT_DBFS } = require('../src/iq');
 const { FfskStream } = require('../src/ffskstream');
-const { Sdr, suggestGain } = require('../src/sdr');
+const { Sdr, suggestGain, SCAN_GAINS, MIN_GAIN } = require('../src/sdr');
 const G = require('./iqgen');
 const L = require('./ljud');
 
@@ -88,6 +88,16 @@ function demodulate(buf) {
     sg = suggestGain([st(0, -60, 1), st(20, -59, 2)]);
     check('klipper på alla steg: lägsta steget, orsak clip', sg && sg.gain === 0 && sg.reason === 'clip', sg);
     check('inga mätvärden: inget förslag', suggestGain([{ gain: 0, error: 'x' }]) === null);
+    // 0.4.2: nästa steg ska också ligga HOLD_DB (6) över det lägsta. Värdena ur en verklig mätning (2026-11-14), utan steget 0.
+    const real = [[7.7, -57.1], [14.4, -56.8], [19.7, -56.7], [25.4, -56.4], [28, -56.2], [32.8, -54.7], [36.4, -52.3], [38.6, -50.6],
+                  [40.2, -48.2], [42.1, -50], [43.9, -46.8], [44.5, -46.7], [48, -46.4], [49.6, -46.9]].map(([g, n]) => st(g, n));
+    sg = suggestGain(real);
+    check('verklig mätning: 40,2 dB (42,1 dB ligger 7,1 dB över, alltså minst 6)', sg && sg.gain === 40.2 && sg.reason === 'ok', sg);
+    sg = suggestGain([st(0.9, -60), st(20, -51.5), st(25.4, -59), st(30, -56), st(36.4, -53), st(40.2, -51.8), st(49.6, -45)]);
+    check('en enstaka hög mätning ger inte förslaget (20 dB, nästa steg bara +1)', sg && sg.gain === 40.2 && sg.reason === 'ok', sg);
+    sg = suggestGain([st(0.9, -60), st(30, -57), st(40.2, -51)]);
+    check('det sista steget kan väljas (inget steg efter)', sg && sg.gain === 40.2 && sg.reason === 'ok', sg);
+    check('SCAN_GAINS hoppar över 0 (automatisk i rtl_sdr)', !SCAN_GAINS.includes(0) && SCAN_GAINS.length === 5 && MIN_GAIN === 0.9, SCAN_GAINS);
 
     // ---------- Sdr med den falska rtl_sdr ----------
     const got = [];
@@ -110,6 +120,13 @@ function demodulate(buf) {
     await until(() => sdr.status().state === 'running', 5000);
     await sleep(400);
     check('Auto: ingen -g och gain_db null', !/-g/.test(fs.readFileSync(SDR_LOG, 'utf8').trim().split('\n').pop()) && sdr.gainDb === null, sdr.gainDb);
+    check('Auto: gain_raised är falskt', sdr.status().gain_raised === false, sdr.status());
+
+    // 0.4.2: 0 dB vore automatisk förstärkning; 0,9 dB används
+    sdr.apply({ freq_hz: 85500000, gain: 0, ppm: 0, decode: true, record: false });
+    await until(() => sdr.status().state === 'running' && sdr.gainDb !== null, 5000);
+    check('0 dB: rtl_sdr får -g 0.9, gain_db 0,9 och gain_raised', / -g 0\.9 -$/.test(fs.readFileSync(SDR_LOG, 'utf8').trim().split('\n').pop())
+        && sdr.gainDb === 0.9 && sdr.status().gain_raised === true, [fs.readFileSync(SDR_LOG, 'utf8').trim().split('\n').pop(), sdr.gainDb]);
 
     // Reserven: rtl_fm, ingen signalstyrka
     got.length = 0;
@@ -126,14 +143,15 @@ function demodulate(buf) {
     const t0 = Date.now();
     const scanP = sdr.scanGain();
     await sleep(300);
-    check('under mätningen är läget scanning', sdr.status().state === 'scanning' && sdr.status().scan.total === 6, sdr.status());
+    check('under mätningen är läget scanning', sdr.status().state === 'scanning' && sdr.status().scan.total === 5, sdr.status());
     let res = await scanP;
     const lines = fs.readFileSync(SDR_LOG, 'utf8').trim().split('\n').slice(before);
-    check('ett rtl_sdr per steg med stegets förstärkning', ['0', '20', '30', '36.4', '40.2', '49.6'].every((g, i) => lines[i] && lines[i].includes(`-g ${g} `)), lines);
-    check('mätvärden för varje steg', res.steps.length === 6 && res.steps.every(x => Number.isFinite(x.noise_dbfs) && x.clip_pct === 0), res.steps);
-    check('brusgolvet stiger med förstärkningen', res.steps[5].noise_dbfs - res.steps[0].noise_dbfs > 12, res.steps.map(x => x.noise_dbfs));
+    check('ett rtl_sdr per steg med stegets förstärkning, inget -g 0', ['20', '30', '36.4', '40.2', '49.6'].every((g, i) => lines[i] && lines[i].includes(`-g ${g} `))
+        && !lines.some(l => l.includes('-g 0 ')), lines);
+    check('mätvärden för varje steg', res.steps.length === 5 && res.steps.every(x => Number.isFinite(x.noise_dbfs) && x.clip_pct === 0), res.steps);
+    check('brusgolvet stiger med förstärkningen', res.steps[4].noise_dbfs - res.steps[0].noise_dbfs > 12, res.steps.map(x => x.noise_dbfs));
     check('förslaget är 40,2 dB (första steget 8 dB över omvandlarens brus)', res.suggestion && res.suggestion.gain === 40.2 && res.suggestion.reason === 'ok', res.suggestion);
-    check('mätningen tar mindre än 10 s med sex steg', Date.now() - t0 < 10000, Date.now() - t0);
+    check('mätningen tar mindre än 10 s med fem steg', Date.now() - t0 < 10000, Date.now() - t0);
     await until(() => sdr.status().state === 'running', 5000);
     check('mottagningen startar igen efter mätningen', sdr.status().state === 'running' && / -g 40\.2 -$/.test(fs.readFileSync(SDR_LOG, 'utf8').trim().split('\n').pop()));
     let e = null;
@@ -144,7 +162,7 @@ function demodulate(buf) {
     process.env.FAKE_SDR_STRONG_DBM = '-70';
     await until(() => sdr.status().state === 'running', 5000);
     res = await sdr.scanGain();
-    check('stark signal bredvid: höga steg klipper', res.steps.find(x => x.gain === 49.6).clip_pct > 0.05 && res.steps.find(x => x.gain === 0).clip_pct === 0, res.steps);
+    check('stark signal bredvid: höga steg klipper', res.steps.find(x => x.gain === 49.6).clip_pct > 0.05 && res.steps.find(x => x.gain === 20).clip_pct === 0, res.steps);
     check('stark signal bredvid: förslaget klipper inte', res.suggestion && res.steps.find(x => x.gain === res.suggestion.gain).clip_pct <= 0.05, res.suggestion);
     delete process.env.FAKE_SDR_STRONG_DBM;
 

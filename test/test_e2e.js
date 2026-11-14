@@ -53,7 +53,7 @@ function startPi() {
             MOTTAGARE_SUDO: '', MOTTAGARE_NMCLI: path.join(F, 'nmcli'), MOTTAGARE_RTL_FM: path.join(F, 'rtl_fm'), MOTTAGARE_RTL_SDR: path.join(F, 'rtl_sdr'), MOTTAGARE_SERIAL_DEVDIR: SDEV, MOTTAGARE_STTY: path.join(F, 'stty'), MOTTAGARE_UPDATER: path.join(F, 'uppdatera'), MOTTAGARE_TIMEDATECTL: path.join(F, 'timedatectl'),
             MOTTAGARE_HW_ID: '10000000e2e0ab12', MOTTAGARE_HB_MS: '1000', MOTTAGARE_BOOT_MS: '1500', MOTTAGARE_NET_TICK_MS: '300', MOTTAGARE_OK_MS: '500',
             FAKE_NM_DIR: NM, FAKE_RTL_LOG: RTL_LOG, FAKE_SDR_LOG: SDR_LOG,
-            MOTTAGARE_SCAN_GAINS: '0,30,36.4,40.2,49.6', MOTTAGARE_SCAN_SKIP_MS: '200', MOTTAGARE_SCAN_MEASURE_MS: '500'
+            MOTTAGARE_SCAN_GAINS: '0.9,30,36.4,40.2,49.6', MOTTAGARE_SCAN_SKIP_MS: '200', MOTTAGARE_SCAN_MEASURE_MS: '500'
         }), stdio: ['ignore', 'pipe', 'pipe'] });
     proc.stdout.on('data', d => { out += d; });
     proc.stderr.on('data', d => { out += d; });
@@ -176,7 +176,7 @@ const form = (p, o) => portal(p, { method: 'POST', headers: { 'content-type': 'a
         check('mätningen: läget Mäter förstärkningen i Dispatch', !!scanning);
         const gs = await until(async () => { const g = (await list())[0].gain_scan; return g && g.done_at ? g : null; }, 20000, 300);
         check('mätningen: resultatet med förslaget 40,2 dB i Dispatch', gs && gs.ok && gs.result && gs.result.steps.length === 5 && gs.result.suggestion.gain === 40.2, gs);
-        check('mätningen: ett rtl_sdr per steg', ['0', '30', '36.4', '40.2', '49.6'].every(g => sdrArgs().some(l => l.includes(`-g ${g} `))), sdrArgs());
+        check('mätningen: ett rtl_sdr per steg', ['0.9', '30', '36.4', '40.2', '49.6'].every(g => sdrArgs().some(l => l.includes(`-g ${g} `))), sdrArgs());
         check('mätningen: mottagningen igång igen', !!(await until(async () => (await list())[0].status.sdr.state === 'running', 6000)));
         r = await s.request('PUT', `/api/admin/mottagare/${id}`, { config: { gain: 30.7, ppm: -3 } }, ADM);
         check('förstärkning och ppm: rtl_sdr startas om med -g 30.7 -p -3', !!(await until(() => sdrArgs().slice(-1)[0].includes('-g 30.7 -p -3'), 3000, 50)), sdrArgs());

@@ -123,7 +123,7 @@ function statusFn() {
         sdr: { state: s.state, error: s.error, freq_hz: s.freq_hz, noise_db: s.noise_db === undefined ? null : s.noise_db, level_db: s.level_db === undefined ? null : s.level_db,
                open: !!s.open, recordings: s.recordings, devices: s.devices,
                // 0.4.0
-               mode: s.mode, gain_db: s.gain_db, noise_dbfs: s.noise_dbfs, clip_pct: s.clip_pct, quant_dbfs: s.quant_dbfs, scan: s.scan || null },
+               mode: s.mode, gain_db: s.gain_db, noise_dbfs: s.noise_dbfs, clip_pct: s.clip_pct, quant_dbfs: s.quant_dbfs, scan: s.scan || null, gain_raised: !!s.gain_raised },
         queue: Object.assign(queue.stats(), { messages: msgs.length }), last_update: lastUpdate,
         decoder: { enabled: cfg().decode !== false, count: decoded.count, outside_squelch: decoded.outside, incomplete: decoded.incomplete,
                    clipped: decoded.clipped, clipped_at: decoded.clipped_at,

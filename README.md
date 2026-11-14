@@ -35,7 +35,9 @@ Sedan version 0.4.0 läser mottagaren radiosignalen med `rtl_sdr` och mäter sig
 
 Stickan har inget kalibrerat mått. Fältet Kalibrering i Dispatch rättar värdet: mät med ett instrument eller en radio som visar signalstyrkan på samma plats och skriv in skillnaden.
 
-Ställ in förstärkning automatiskt (knappen i Dispatch) provar förstärkningsstegen. Vid låg förstärkning är brusgolvet omvandlarens eget brus och står still; när förstärkningen höjs börjar stickans och antennens brus synas och brusgolvet stiger. Mottagaren föreslår det lägsta steget där brusgolvet ligger minst 8 dB över det lägsta, utan klippning. Högre förstärkning än så ger inte bättre känslighet, bara mindre marginal mot starka signaler. Gör mätningen när ingen sänder på kanalen.
+Ställ in förstärkning automatiskt (knappen i Dispatch) provar förstärkningsstegen. Vid låg förstärkning är brusgolvet omvandlarens eget brus och står still; när förstärkningen höjs börjar stickans och antennens brus synas och brusgolvet stiger. Mottagaren föreslår det lägsta steget där brusgolvet ligger minst 8 dB över det lägsta, utan klippning, och där även nästa steg ligger minst 6 dB över (så att en enstaka mätning som slår fel inte avgör). Varje steg mäts i 3 sekunder. Högre förstärkning än så ger inte bättre känslighet, bara mindre marginal mot starka signaler. Gör mätningen när ingen sänder på kanalen.
+
+Förstärkningen 0 dB går inte att använda: rtl_sdr och rtl_fm tolkar 0 som automatisk förstärkning. Den lägsta fasta förstärkningen är 0,9 dB (sedan 0.4.2).
 
 Mottagning: Endast ljud använder `rtl_fm` som före 0.4.0, utan signalstyrka. Den finns som reserv om avkodningen skulle bli sämre med den nya demoduleringen.
 

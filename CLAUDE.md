@@ -27,7 +27,9 @@ leverera genom push till `main`, skriv text enligt skillen naturlig-text.
   `src/iq.js` FM-demodulerar I/Q (240 000 sampel/s, stickan 60 kHz över kanalen, kanalfilter 10 kHz, decimering till 24 kHz) och
   ger block om 20 ms med effekten i kanalen (dBFS) och klippningen. Ramarna får `signal_dbfs`, `gain_db` (ur "Tuner gain set to")
   och `clipped`; Dispatch räknar om till dBm (`radio90.js`, `DBM_OFFSET` −30 + kalibreringen). Livssignalen: `sdr.mode`, `gain_db`,
-  `noise_dbfs`, `clip_pct`, `quant_dbfs`, `scan`; `decoder.clipped`, `clipped_at`. Kommandot `gain_scan` (`scanGain()`, `suggestGain()`):
+  `noise_dbfs`, `clip_pct`, `quant_dbfs`, `scan`; `decoder.clipped`, `clipped_at`. Kommandot `gain_scan` (`scanGain()`, `suggestGain()`; 0.4.2: `-g 0` är automatisk förstärkning i rtl_sdr/rtl_fm, så `MIN_GAIN` 0,9 dB
+  är lägsta fasta steg, `fixedGain()` höjer lägre värden och livssignalen får `sdr.gain_raised`; mätningen börjar på 0,9, `MEASURE_MS` 3 s, och förslaget kräver
+  att nästa steg också ligger `HOLD_DB` (6) över det lägsta):
   ett `rtl_sdr` per steg i `SCAN_GAINS`, resultatet skickas med kvittensen (`commandDone(id, ok, msg, result)`).
   `src/squelch.js` är brussquelchen och inspelningen; `src/queue.js` kön på disk.
 - `src/serial.js` (0.4.1): källan Serieport (`config.source` 'serial', `serial_port`, `serial_baud` förvalt 4 800). J3 på en Aurora med GPS skriver

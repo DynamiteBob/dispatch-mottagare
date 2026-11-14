@@ -13,7 +13,10 @@
 // Mätning av förstärkningen (kommandot gain_scan, scanGain()): vanliga mottagningen stoppas, och för varje steg i SCAN_GAINS
 // startas rtl_sdr med det steget; brusgolv och klippning mäts i MEASURE_MS efter SKIP_MS. suggestGain() väljer den lägsta
 // förstärkning där brusgolvet ligger minst RISE_DB över det lägsta brusgolvet (då är det stickans och antennens brus som hörs,
-// inte omvandlarens), utan klippning. Inget steg utan klippning: det lägsta. Inget steg som når RISE_DB: det högsta utan klippning.
+// inte omvandlarens), utan klippning, och där nästa steg ligger minst HOLD_DB över det lägsta (0.4.2: en enstaka mätning som
+// slår några dB fel ger inte förslaget). Inget steg utan klippning: det lägsta. Inget steg som når RISE_DB: det högsta utan klippning.
+// 0.4.2: rtl_sdr och rtl_fm tolkar -g 0 som automatisk förstärkning. Lägsta fasta steg är därför MIN_GAIN (0,9 dB); en inställd
+// förstärkning under det körs som MIN_GAIN och livssignalen får gain_raised. Mätningen börjar på MIN_GAIN.
 //  - Stickorna listas ur /sys/bus/usb/devices (Realtek 0bda:2838/2832), utan att öppna dem.
 //  - Startar inte rtl_fm (fel, stickan saknas eller upptagen) försöker den igen efter 5 s, sedan längre (högst 60 s).
 //  - Kommer inget ljud på 10 s startas rtl_fm om (stickor kan sluta leverera utan att processen dör).
@@ -36,11 +39,13 @@ const RTL_SDR = process.env.MOTTAGARE_RTL_SDR || 'rtl_sdr';
 const FAKE_TOOLS = !!(process.env.MOTTAGARE_RTL_FM || process.env.MOTTAGARE_RTL_SDR);
 // Stegen i R820T/R828D (RTL-SDR Blog v3 och v4); stickan väljer närmaste steg
 const GAIN_STEPS = [0, 0.9, 1.4, 2.7, 3.7, 7.7, 8.7, 12.5, 14.4, 15.7, 16.6, 19.7, 20.7, 22.9, 25.4, 28.0, 29.7, 32.8, 33.8, 36.4, 37.2, 38.6, 40.2, 42.1, 43.4, 43.9, 44.5, 48.0, 49.6];
-const SCAN_GAINS = process.env.MOTTAGARE_SCAN_GAINS ? process.env.MOTTAGARE_SCAN_GAINS.split(',').map(Number)
-    : [0, 7.7, 14.4, 19.7, 25.4, 28.0, 32.8, 36.4, 38.6, 40.2, 42.1, 43.9, 44.5, 48.0, 49.6];
+const MIN_GAIN = 0.9;   // 0.4.2: -g 0 är automatisk förstärkning i rtl_sdr och rtl_fm
+const SCAN_GAINS = (process.env.MOTTAGARE_SCAN_GAINS ? process.env.MOTTAGARE_SCAN_GAINS.split(',').map(Number)
+    : [MIN_GAIN, 7.7, 14.4, 19.7, 25.4, 28.0, 32.8, 36.4, 38.6, 40.2, 42.1, 43.9, 44.5, 48.0, 49.6]).filter(g => Number.isFinite(g) && g >= MIN_GAIN);
 const SKIP_MS = parseInt(process.env.MOTTAGARE_SCAN_SKIP_MS, 10) || 300;
-const MEASURE_MS = parseInt(process.env.MOTTAGARE_SCAN_MEASURE_MS, 10) || 1500;
+const MEASURE_MS = parseInt(process.env.MOTTAGARE_SCAN_MEASURE_MS, 10) || 3000;   // 0.4.2: förut 1,5 s
 const RISE_DB = 8;
+const HOLD_DB = 6;   // 0.4.2: nästa steg ska också ligga så här mycket över det lägsta
 const CLIP_LIMIT_PCT = 0.05;
 const STATS_BLOCKS = 3000;   // 60 s
 const r1 = (v) => v === null || v === undefined || !Number.isFinite(v) ? null : Math.round(v * 10) / 10;
@@ -52,7 +57,11 @@ function suggestGain(steps) {
     const base = Math.min(...ok.map(x => x.noise_dbfs));
     const clean = ok.filter(x => !(x.clip_pct > CLIP_LIMIT_PCT));
     if (!clean.length) return { gain: ok[0].gain, reason: 'clip', base_dbfs: r1(base) };
-    const pick = clean.find(x => x.noise_dbfs - base >= RISE_DB);
+    const pick = clean.find(x => {
+        if (x.noise_dbfs - base < RISE_DB) return false;
+        const next = ok.find(y => y.gain > x.gain);
+        return !next || next.noise_dbfs - base >= HOLD_DB;
+    });
     if (pick) return { gain: pick.gain, reason: 'ok', base_dbfs: r1(base) };
     return { gain: clean[clean.length - 1].gain, reason: 'low', base_dbfs: r1(base) };
 }
@@ -99,7 +108,8 @@ class Sdr {
     mode() { return this.config.rx_mode === 'fm' ? 'fm' : 'iq'; }
     status() {
         const st = { state: this.scanning ? 'scanning' : this.state, error: this.error, freq_hz: this.config.freq_hz || 0, devices: listDevices(),
-                     mode: this.mode(), gain_db: this.gainDb, quant_dbfs: QUANT_DBFS, noise_dbfs: null, clip_pct: null };
+                     mode: this.mode(), gain_db: this.gainDb, quant_dbfs: QUANT_DBFS, noise_dbfs: null, clip_pct: null,
+                     gain_raised: this.gainRaised() };
         if (this.scanning) st.scan = { step: this.scanning.step, total: this.scanning.total };
         if (this.state === 'running' && this.mode() === 'iq' && this.blocks.length >= 50) {
             const p = this.blocks.map(b => b[0]).sort((a, b) => a - b);
@@ -130,7 +140,11 @@ class Sdr {
         this.retryMs = 5000;
         this.restart();
     }
-    fixedGain(g) { return g !== 'auto' && g !== undefined && g !== null && g !== '' && Number.isFinite(Number(g)) ? Number(g) : null; }
+    fixedGain(g) {
+        if (g === 'auto' || g === undefined || g === null || g === '' || !Number.isFinite(Number(g))) return null;
+        return Math.max(MIN_GAIN, Number(g));   // 0.4.2: -g 0 vore automatisk förstärkning
+    }
+    gainRaised() { const g = this.config.gain; return g !== 'auto' && g !== null && g !== '' && Number.isFinite(Number(g)) && Number(g) < MIN_GAIN; }
     args(gainOverride) {
         const c = this.config;
         const g = gainOverride !== undefined ? gainOverride : this.fixedGain(c.gain);
@@ -168,6 +182,7 @@ class Sdr {
         const PROG = this.prog(iq);
         this.gainDb = this.fixedGain(this.config.gain);
         const args = this.args();
+        if (this.gainRaised()) log(`förstärkningen ${this.config.gain} dB vore automatisk förstärkning; ${MIN_GAIN} dB används`);
         log(`startar ${PROG} ${args.join(' ')}`);
         let p;
         try { p = spawn(PROG, args, { stdio: ['ignore', 'pipe', 'pipe'] }); } catch (e) { this.fail(e.message); return; }
@@ -246,7 +261,7 @@ class Sdr {
             this.restart();
         }
         if (!steps.some(x => !x.error)) throw new Error(steps[0] && steps[0].error ? steps[0].error : 'Mätningen gav inga värden.');
-        return { steps, suggestion: suggestGain(steps), quant_dbfs: QUANT_DBFS, rise_db: RISE_DB, clip_limit_pct: CLIP_LIMIT_PCT };
+        return { steps, suggestion: suggestGain(steps), quant_dbfs: QUANT_DBFS, rise_db: RISE_DB, hold_db: HOLD_DB, clip_limit_pct: CLIP_LIMIT_PCT };
     }
     measure(gain) {
         return new Promise((resolve) => {
@@ -285,4 +300,4 @@ class Sdr {
     shutdown() { clearTimeout(this.timer); clearInterval(this.stallTimer); this.stop(); }
 }
 
-module.exports = { Sdr, listDevices, suggestGain, GAIN_STEPS, SCAN_GAINS };
+module.exports = { Sdr, listDevices, suggestGain, GAIN_STEPS, SCAN_GAINS, MIN_GAIN };

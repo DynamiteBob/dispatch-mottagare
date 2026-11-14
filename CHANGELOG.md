@@ -10,6 +10,18 @@ Rubrikerna under varje version:
 - **Ändrat** – funktioner som fungerar annorlunda än tidigare
 - **Rättat** – fel som har rättats
 
+## 0.4.2 – 2026-11-14
+
+Dispatch 1.65.5 visar när mottagaren har höjt förstärkningen till 0,9 dB. Mottagaren fungerar också med en äldre Dispatch.
+
+### Rättat
+- Förstärkningen 0 dB gav automatisk förstärkning, eftersom rtl_sdr och rtl_fm tolkar 0 så. Då visades ingen signalstyrka, och stickan kunde överstyras. Den lägsta fasta förstärkningen är nu 0,9 dB, och en inställd förstärkning under det körs som 0,9 dB.
+- Ställ in förstärkning automatiskt mätte steget 0 dB med automatisk förstärkning, så förslaget kunde bli 0 dB. Mätningen börjar nu på 0,9 dB.
+
+### Ändrat
+- Ställ in förstärkning automatiskt mäter varje steg i 3 sekunder i stället för 1,5. Hela mätningen tar drygt en minut.
+- Förslaget tål en enstaka mätning som slår fel: ett steg föreslås bara om även nästa steg ligger minst 6 dB över omvandlarens eget brus.
+
 ## 0.4.1 – 2026-11-14
 
 Kräver Dispatch 1.65.3 för att källan Serieport ska gå att välja. Med en äldre Dispatch fungerar mottagaren som förut.
