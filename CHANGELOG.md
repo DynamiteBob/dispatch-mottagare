@@ -10,6 +10,20 @@ Rubrikerna under varje version:
 - **Ändrat** – funktioner som fungerar annorlunda än tidigare
 - **Rättat** – fel som har rättats
 
+## 0.4.0 – 2026-11-14
+
+Kräver Dispatch 1.65.2 för att signalstyrkan, varningarna och Ställ in förstärkning automatiskt ska synas. Med en äldre Dispatch avkodar mottagaren som förut.
+
+### Nytt
+- Mottagaren mäter signalstyrkan för varje meddelande. Dispatch visar den i ungefärliga dBm på kartan och i Täckning (mottagare). Det kräver fast förstärkning.
+- Livssignalen har stickans förstärkning, brusgolvet och hur mycket stickan klipper (överstyrs). Dispatch varnar när stickan är överstyrd eller när förstärkningen är för låg.
+- Kommandot Ställ in förstärkning automatiskt: mottagaren provar förstärkningsstegen ett i taget i ungefär en minut och föreslår det lägsta steget där stickans och antennens brus hörs över omvandlarens eget brus, utan klippning. Förslaget sparas först när det godkänns i Dispatch. Under mätningen avkodas inget.
+- Inställningen Mottagning i Dispatch: Signalstyrka (förvald) eller Endast ljud. Endast ljud är reserven och fungerar som före 0.4.0.
+
+### Ändrat
+- Mottagaren läser radiosignalen från stickan med `rtl_sdr` och FM-demodulerar själv, i stället för att använda `rtl_fm`. Stickan ställs in 60 kHz över kanalen så att dess likspänningsspik inte hamnar i kanalen. Med Endast ljud används `rtl_fm` som förut.
+- Loggen kallar inspelningarnas nivå brusdämpning.
+
 ## 0.3.2 – 2026-11-13
 
 Kräver Dispatch 1.63.13 för att klockan och de ofullständiga ramarna ska visas i Adminportalen. Med en äldre Dispatch fungerar mottagaren som förut.

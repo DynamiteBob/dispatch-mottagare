@@ -1,0 +1,47 @@
+#!/usr/bin/env node
+// Falsk rtl_sdr för testerna (0.4.0): skriver I och Q (osignerade byte) i 240 000 sampel per sekund i realtid,
+// brus 2 s och en FM-modulerad FFSK-skur 1 s om vartannat. Skuren är samma Aurora-meddelande som i den falska rtl_fm
+// (påhittade värden, ID 12345). Stickan efterliknas grovt:
+//  - bruset i I och Q är omvandlarens eget brus 0,004 plus 0,012 · 10^((förstärkning − 40) / 20) (fullt utslag = 1), så att
+//    omvandlaren dominerar vid låg förstärkning och brusgolvet stiger med förstärkningen vid hög
+//  - signalen har amplituden 10^((FAKE_SDR_DBM + förstärkning + 30) / 20), alltså dBFS = dBm + förstärkning + 30
+//  - FAKE_SDR_STRONG_DBM lägger en omodulerad bärvåg 90 kHz bredvid (utanför kanalen) som kan överstyra stickan
+// Förstärkningen tas från -g (Auto = 40). Raden "Tuner gain set to …" skrivs som i rtl_sdr.
+// FAKE_SDR_PAYLOAD byter data i meddelandet, FAKE_SDR_TX_HZ sändarens frekvens (förvalt kanalen 60 kHz under -f).
+// Argumenten loggas i FAKE_SDR_LOG. FAKE_SDR_FAIL=1 avslutar direkt med ett fel som rtl_sdr.
+'use strict';
+const fs = require('fs');
+const L = require('../ljud');
+const G = require('../iqgen');
+const ffsk = require('../../src/ffsk');
+const argv = process.argv.slice(2);
+if (process.env.FAKE_SDR_LOG) fs.appendFileSync(process.env.FAKE_SDR_LOG, argv.join(' ') + '\n');
+if (process.env.FAKE_SDR_FAIL === '1') { process.stderr.write('No supported devices found.\n'); process.exit(1); }
+const arg = (k) => { const i = argv.indexOf(k); return i >= 0 ? argv[i + 1] : null; };
+const center = Number(arg('-f')) || 0;
+const gArg = arg('-g');
+const STEPS = [0, 0.9, 1.4, 2.7, 3.7, 7.7, 8.7, 12.5, 14.4, 15.7, 16.6, 19.7, 20.7, 22.9, 25.4, 28.0, 29.7, 32.8, 33.8, 36.4, 37.2, 38.6, 40.2, 42.1, 43.4, 43.9, 44.5, 48.0, 49.6];
+const gain = gArg === null ? 40 : STEPS.reduce((b, x) => Math.abs(x - Number(gArg)) < Math.abs(b - Number(gArg)) ? x : b, 0);
+process.stderr.write('Found 1 device(s):\n  0:  Generic, RTL2832U, SN: 00000001\n\nUsing device 0: Generic RTL2832U\nFound Rafael Micro R820T tuner\n');
+process.stderr.write(`Sampling at ${arg('-s') || 2048000} S/s.\nTuned to ${center} Hz.\n`);
+process.stderr.write(gArg === null ? 'Tuner gain set to automatic.\n' : `Tuner gain set to ${gain.toFixed(2)} dB.\n`);
+process.stderr.write('Reading samples in async mode...\n');
+const PAYLOAD = process.env.FAKE_SDR_PAYLOAD || '8312592012340180045678004512345033' + '00';
+const frame = ffsk.encodeBits(['810004E02000', PAYLOAD.slice(0, 12), PAYLOAD.slice(12, 24), PAYLOAD.slice(24, 36)].map(h => BigInt('0x' + h)));
+const bits = Array.from({ length: 1200 - frame.length }, (_, i) => i % 2 ? 0 : 1).concat(frame);
+const dbm = Number(process.env.FAKE_SDR_DBM || -95);
+const sigma = Math.hypot(0.004, 0.012 * Math.pow(10, (gain - 40) / 20));
+const amp = Math.pow(10, (dbm + gain + 30) / 20);
+const strong = process.env.FAKE_SDR_STRONG_DBM ? Math.pow(10, (Number(process.env.FAKE_SDR_STRONG_DBM) + gain + 30) / 20) : 0;
+const offsetHz = process.env.FAKE_SDR_TX_HZ ? Number(process.env.FAKE_SDR_TX_HZ) - center : -60000;
+const cycle = Buffer.concat([G.iq({ seconds: 2, sigma, strong }), G.iq({ audio: L.ffsk(bits, 24000, 8000, 1), amp, sigma, strong, offsetHz })]);
+let off = 0;
+const CH = 12000 * 2;   // 50 ms
+setInterval(() => {
+    const b = cycle.subarray(off, off + CH);
+    off += CH;
+    if (off >= cycle.length) off = 0;
+    try { process.stdout.write(b); } catch (e) { process.exit(0); }
+}, 50);
+process.stdout.on('error', () => process.exit(0));
+process.on('SIGTERM', () => process.exit(0));

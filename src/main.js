@@ -4,12 +4,14 @@
 //  - net.js       nätet och mottagarens eget wifi (hotspot)
 //  - portal.js    inställningssidan på port 80
 //  - dispatch.js  anmälan, inställningar och kommandon från Dispatch, livssignal, uppladdning
-//  - sdr.js       rtl_fm och squelchen (squelch.js), inspelningarna läggs i kön (queue.js)
+//  - sdr.js       rtl_sdr (iq.js FM-demodulerar och mäter signalstyrkan, 0.4.0) eller rtl_fm, och squelchen (squelch.js);
+//                 inspelningarna läggs i kön (queue.js)
 //  - ffsk.js      (0.2.0) avkodar FFSK; ffskstream.js (0.3.0) kör avkodaren på hela strömmen, oberoende av squelchen.
 //                 aurora.js tolkar Aurora-meddelandet.
 //                 Meddelandena läggs i msgqueue.js och skickas till Dispatch (POST /api/mottagare/messages).
-// Kommandon från Dispatch: restart (programmet avslutas och systemd startar det igen), reboot (sudo reboot) och
-// update (bin/uppdatera.sh körs som en egen systemd-enhet, så att den överlever att tjänsten startas om).
+// Kommandon från Dispatch: restart (programmet avslutas och systemd startar det igen), reboot (sudo reboot),
+// update (bin/uppdatera.sh körs som en egen systemd-enhet, så att den överlever att tjänsten startas om) och
+// gain_scan (0.4.0: mäter brusgolv och klippning för varje förstärkningssteg; resultatet skickas med kvittensen).
 // Efter 15 s skrivs <körmapp>/ok med versionen; uppdateringen väntar på den filen innan den godkänner en ny version.
 // ============================================================================
 'use strict';
@@ -47,7 +49,7 @@ if (!state.get().dispatch_url && process.env.MOTTAGARE_DISPATCH_URL) {
 
 const queue = new Queue(path.join(state.DIR, 'kö'));
 const msgs = new MsgQueue(state.DIR);
-const decoded = { count: 0, outside: 0, incomplete: 0, last_at: null, last_id: null, errors: 0 };
+const decoded = { count: 0, outside: 0, incomplete: 0, clipped: 0, clipped_at: null, last_at: null, last_id: null, errors: 0 };
 // 0.3.2: ett positionsmeddelande har adressen och tre datakodord. En ram med färre kodord är avbruten (svag signal)
 // och skickas inte till Dispatch; den räknas som ofullständig.
 const MIN_CODEWORDS = 4;
@@ -64,22 +66,28 @@ const sdr = new Sdr({
         if (!whole.length) return;
         const list = whole.map(fr => {
             const p = aurora.parse(fr.payload);
-            return { at: fr.at, freq_hz: freq, level_db: fr.level_db, squelch_open: fr.squelch_open, sync: fr.sync,
+            // 0.4.0: signal_dbfs och gain_db (Dispatch räknar om till dBm), clipped = stickan var överstyrd under meddelandet
+            return { at: fr.at, freq_hz: freq, level_db: fr.level_db, signal_dbfs: fr.signal_dbfs === undefined ? null : fr.signal_dbfs,
+                     gain_db: fr.signal_dbfs === null || fr.signal_dbfs === undefined ? null : sdr.gainDb, clipped: !!fr.clipped,
+                     squelch_open: fr.squelch_open, sync: fr.sync,
                      inverted: fr.inverted, codewords: fr.codewords, address: fr.address, payload: fr.payload, id: p.id, fix: p.fix };
         });
+        const clipped = list.filter(m => m.clipped);
+        if (clipped.length) { decoded.clipped += clipped.length; decoded.clipped_at = clipped[clipped.length - 1].at; }
         msgs.add(list);
         decoded.count += list.length;
         decoded.outside += list.filter(m => !m.squelch_open).length;
         decoded.last_at = list[list.length - 1].at;
         decoded.last_id = list[list.length - 1].id;
-        for (const m of list) log(`avkodat: ID ${m.id || '?'}${m.fix ? '' : ' (ingen GPS-fix)'}${m.squelch_open ? '' : ' (squelchen stängd)'} ${m.payload}`);
+        for (const m of list) log(`avkodat: ID ${m.id || '?'}${m.fix ? '' : ' (ingen GPS-fix)'}${m.squelch_open ? '' : ' (squelchen stängd)'}` +
+            `${m.signal_dbfs !== null ? ` ${m.signal_dbfs} dBFS` : ''}${m.clipped ? ' (överstyrd)' : ''} ${m.payload}`);
         client.uploadMessages();
     },
     onDecodeError: (e) => { decoded.errors++; log('avkodningen misslyckades:', e.message); },
     onRecording: (r) => {
         const meta = { at: r.at, duration_ms: r.duration_ms, freq_hz: r.freq_hz, level_db: r.level_db, cut: !!r.cut };
         queue.add(meta, wav(r.samples, r.rate));
-        log(`inspelning ${r.duration_ms} ms${r.cut ? ' (max längd)' : ''}, ${r.level_db} dB under bruset`);
+        log(`inspelning ${r.duration_ms} ms${r.cut ? ' (max längd)' : ''}, brusdämpning ${r.level_db} dB`);
     }
 });
 
@@ -97,9 +105,12 @@ function statusFn() {
         net: n.eth ? { type: 'eth', ssid: null, signal: null } : n.wifi && n.wifi.connected ? { type: 'wifi', ssid: n.wifi.ssid, signal: n.wifi.signal } : { type: n.hotspot ? 'hotspot' : 'none' },
         hotspot: { active: n.hotspot, ssid: ssid(), psk: psk() },
         sdr: { state: s.state, error: s.error, freq_hz: s.freq_hz, noise_db: s.noise_db === undefined ? null : s.noise_db, level_db: s.level_db === undefined ? null : s.level_db,
-               open: !!s.open, recordings: s.recordings, devices: s.devices },
+               open: !!s.open, recordings: s.recordings, devices: s.devices,
+               // 0.4.0
+               mode: s.mode, gain_db: s.gain_db, noise_dbfs: s.noise_dbfs, clip_pct: s.clip_pct, quant_dbfs: s.quant_dbfs, scan: s.scan || null },
         queue: Object.assign(queue.stats(), { messages: msgs.length }), last_update: lastUpdate,
         decoder: { enabled: cfg().decode !== false, count: decoded.count, outside_squelch: decoded.outside, incomplete: decoded.incomplete,
+                   clipped: decoded.clipped, clipped_at: decoded.clipped_at,
                    last_at: decoded.last_at, last_id: decoded.last_id, errors: decoded.errors },
         clock: { synced: system.clockSynced(), now: new Date().toISOString() }   // 0.3.2: Dispatch räknar ut hur mycket klockan går fel
     };
@@ -132,6 +143,21 @@ async function runCommand(c) {
         const p = spawn(cmd, args, { stdio: 'ignore', detached: true });
         p.on('error', (e) => { state.set({ pending_update: undefined }); client.commandDone(c.id, false, `Uppdateringen kunde inte startas: ${e.message}`); });
         p.unref();
+    } else if (c.cmd === 'gain_scan') {
+        client.heartbeat();
+        const hb = setInterval(() => client.heartbeat(), 3000);
+        try {
+            const r = await sdr.scanGain();
+            const sg = r.suggestion;
+            const msg = !sg ? 'Mätningen gav inget förslag.'
+                : sg.reason === 'clip' ? `Stickan klipper redan på lägsta steget (${sg.gain} dB). En stark signal finns nära mottagaren.`
+                : sg.reason === 'low' ? `Förslag ${sg.gain} dB. Brusgolvet steg inte ${r.rise_db} dB på något steg utan klippning.`
+                : `Förslag ${sg.gain} dB.`;
+            log(`mätningen klar: ${msg}`);
+            await client.commandDone(c.id, true, msg, r);
+        } catch (e) {
+            await client.commandDone(c.id, false, `Mätningen misslyckades: ${e.message}`);
+        } finally { clearInterval(hb); client.heartbeat(); }
     } else {
         await client.commandDone(c.id, false, 'Okänt kommando.');
     }

@@ -1,12 +1,13 @@
 // ============================================================================
 // Hela kedjan mot den riktiga Dispatch-testservern (repot dispatch bredvid, eller DISPATCH_DIR):
-// falsk nmcli och falsk rtl_fm, mottagaren körs som i Pi:n (src/main.js) men utan sudo och på en annan port.
+// falsk nmcli, falsk rtl_sdr och falsk rtl_fm, mottagaren körs som i Pi:n (src/main.js) men utan sudo och på en annan port.
 //  1. inget nät efter start: hotspoten startar; fel lösenord: hotspoten tillbaka; rätt lösenord: ansluten
 //  2. Dispatch-adressen på inställningssidan → anmälan med kod → godkänns i Dispatch
-//  3. frekvens i Dispatch → rtl_fm startar inom en sekund, inspelningar kommer fram och går att ladda ner
+//  3. frekvens i Dispatch → rtl_sdr startar inom en sekund (0.4.0, Signalstyrka), inspelningar kommer fram och går att ladda ner
 //     (0.2.0) FFSK-skuren (Aurora, påhittade värden) avkodas och syns som Radio 90 i Dispatch; inspelning och avkodning av;
-//     (0.3.0) avkodning med squelchen stängd
-//  4. förstärkning ändras → rtl_fm startas om med -g; squelch ändras → rtl_fm startas inte om
+//     (0.3.0) avkodning med squelchen stängd; (0.4.0) signalstyrkan i dBm i Dispatch, livssignalens brusgolv
+//  4. förstärkning ändras → rtl_sdr startas om med -g; squelch ändras → startas inte om; (0.4.0) Ställ in förstärkning
+//     automatiskt (resultatet i Dispatch), Endast ljud → rtl_fm, tillbaka till Signalstyrka
 //  5. Starta om programmet (avslutas, startas igen med samma nyckel), Uppdatera (resultatet kommer tillbaka)
 //  6. mottagaren tystnar → Tyst i Dispatch och i aktivitetsloggen, tillbaka → kontakt igen
 //  7. borttagen i Dispatch → anmäler sig igen med en ny kod
@@ -32,10 +33,11 @@ const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'mottagare-e2e-'));
 const STATE = path.join(tmp, 'state'), RUN = path.join(tmp, 'run'), NM = path.join(tmp, 'nm');
 fs.mkdirSync(NM);
 fs.writeFileSync(path.join(NM, 'state.json'), JSON.stringify({ mode: 'none', saved: {} }));
-const RTL_LOG = path.join(tmp, 'rtl.log');
+const RTL_LOG = path.join(tmp, 'rtl.log'), SDR_LOG = path.join(tmp, 'sdr.log');
 const PORTAL = 8191;
 const F = path.join(__dirname, 'falska');
 const rtlArgs = () => { try { return fs.readFileSync(RTL_LOG, 'utf8').trim().split('\n'); } catch (e) { return []; } };
+const sdrArgs = () => { try { return fs.readFileSync(SDR_LOG, 'utf8').trim().split('\n'); } catch (e) { return []; } };
 const nmCalls = () => { try { return fs.readFileSync(path.join(NM, 'calls.log'), 'utf8'); } catch (e) { return ''; } };
 const nmState = () => JSON.parse(fs.readFileSync(path.join(NM, 'state.json'), 'utf8'));
 
@@ -45,9 +47,10 @@ function startPi() {
     proc = spawn(process.execPath, [path.join(__dirname, '..', 'src', 'main.js')], {
         env: Object.assign({}, process.env, {
             MOTTAGARE_STATE_DIR: STATE, MOTTAGARE_RUN_DIR: RUN, MOTTAGARE_PORTAL_PORT: String(PORTAL), MOTTAGARE_PORTAL_OPEN: '1',
-            MOTTAGARE_SUDO: '', MOTTAGARE_NMCLI: path.join(F, 'nmcli'), MOTTAGARE_RTL_FM: path.join(F, 'rtl_fm'), MOTTAGARE_UPDATER: path.join(F, 'uppdatera'), MOTTAGARE_TIMEDATECTL: path.join(F, 'timedatectl'),
+            MOTTAGARE_SUDO: '', MOTTAGARE_NMCLI: path.join(F, 'nmcli'), MOTTAGARE_RTL_FM: path.join(F, 'rtl_fm'), MOTTAGARE_RTL_SDR: path.join(F, 'rtl_sdr'), MOTTAGARE_UPDATER: path.join(F, 'uppdatera'), MOTTAGARE_TIMEDATECTL: path.join(F, 'timedatectl'),
             MOTTAGARE_HW_ID: '10000000e2e0ab12', MOTTAGARE_HB_MS: '1000', MOTTAGARE_BOOT_MS: '1500', MOTTAGARE_NET_TICK_MS: '300', MOTTAGARE_OK_MS: '500',
-            FAKE_NM_DIR: NM, FAKE_RTL_LOG: RTL_LOG
+            FAKE_NM_DIR: NM, FAKE_RTL_LOG: RTL_LOG, FAKE_SDR_LOG: SDR_LOG,
+            MOTTAGARE_SCAN_GAINS: '0,30,36.4,40.2,49.6', MOTTAGARE_SCAN_SKIP_MS: '200', MOTTAGARE_SCAN_MEASURE_MS: '500'
         }), stdio: ['ignore', 'pipe', 'pipe'] });
     proc.stdout.on('data', d => { out += d; });
     proc.stderr.on('data', d => { out += d; });
@@ -111,8 +114,8 @@ const form = (p, o) => portal(p, { method: 'POST', headers: { 'content-type': 'a
         const t0 = Date.now();
         r = await s.request('PUT', `/api/admin/mottagare/${id}`, { config: { freq_hz: 69718750 } }, ADM);
         check('frekvensen sparas', r.status === 200, r.json);
-        const started = await until(() => rtlArgs().some(l => /-f 69718750 -M fm -s 24000 -E dc -/.test(l)), 3000, 50);
-        check('rtl_fm startar med frekvensen inom 1,5 s', !!started && Date.now() - t0 < 1500, { ms: Date.now() - t0, args: rtlArgs() });
+        const started = await until(() => sdrArgs().some(l => /^-f 69778750 -s 240000 -b 16384 -g 40\.2 -$/.test(l)), 3000, 50);
+        check('rtl_sdr startar med kanalen + 60 kHz och fast förstärkning inom 1,5 s', !!started && Date.now() - t0 < 1500, { ms: Date.now() - t0, args: sdrArgs() });
         const running = await until(async () => { const x = (await list())[0]; return x.status.sdr.state === 'running' && x.config_applied ? x : null; }, 5000);
         check('Dispatch: Lyssnar och inställningarna är hämtade', !!running, running && running.status);
         const rec = await until(async () => { const j = (await s.request('GET', `/api/admin/mottagare/${id}/recordings`, undefined, ADM)).json; return j.recordings && j.recordings.length ? j.recordings : null; }, 12000, 300);
@@ -131,6 +134,10 @@ const form = (p, o) => portal(p, { method: 'POST', headers: { 'content-type': 'a
               && r90.speed_kmh === 4.5 && r90.status === '33' && r90.receivers.includes('Mottagare Ljusdal'), r90 || out.slice(-600));
         const dec = await until(async () => { const x = (await list())[0]; return x.status.decoder && x.status.decoder.count > 0 ? x.status.decoder : null; }, 5000);
         check('livssignalen: avkodarens läge', dec && dec.enabled && dec.last_id === '12345' && dec.incomplete === 0, dec);
+        // 0.4.0: den falska stickan sänder med −95 dBm (dBFS = dBm + förstärkning + 30)
+        check('Radio 90: signalstyrkan i dBm', r90 && Math.abs(r90.position.signal_dbm - (-95)) < 1.5 && r90.position.level_db > 10, r90 && r90.position);
+        const sd = await until(async () => { const x = (await list())[0].status.sdr; return x.noise_dbfs !== null && x.noise_dbfs !== undefined ? x : null; }, 6000);
+        check('livssignalen: Signalstyrka, förstärkning, brusgolv och klippning', sd && sd.mode === 'iq' && sd.gain_db === 40.2 && sd.noise_dbfs < -40 && sd.clip_pct === 0 && sd.quant_dbfs < -60, sd);
         const clk = await until(async () => { const x = (await list())[0]; return x.status.clock && x.status.clock.synced === true ? x.status.clock : null; }, 5000);
         check('livssignalen: klockan synkad och rätt', clk && Math.abs(clk.offset_s) < 3, clk);
         // Inspelning av: meddelandena kommer ändå, inga nya inspelningar
@@ -156,12 +163,27 @@ const form = (p, o) => portal(p, { method: 'POST', headers: { 'content-type': 'a
         check('squelch 40 dB: avkodas ändå, räknas som utanför squelchen', !!outside, (await list())[0].status.decoder);
 
         // 4. Ändringar
-        const nArgs = rtlArgs().length;
-        r = await s.request('PUT', `/api/admin/mottagare/${id}`, { config: { squelch_db: 12 } }, ADM);
+        const nArgs = sdrArgs().length;
+        r = await s.request('PUT', `/api/admin/mottagare/${id}`, { config: { squelch_db: 12, cal_db: 2 } }, ADM);
         await sleep(1500);
-        check('squelchen ändras utan att rtl_fm startas om', rtlArgs().length === nArgs, rtlArgs());
+        check('squelch och kalibrering ändras utan att rtl_sdr startas om', sdrArgs().length === nArgs, sdrArgs());
+        // 0.4.0: Ställ in förstärkning automatiskt
+        r = await s.request('POST', `/api/admin/mottagare/${id}/command`, { cmd: 'gain_scan' }, ADM);
+        const scanning = await until(async () => (await list())[0].status.sdr.state === 'scanning', 5000, 100);
+        check('mätningen: läget Mäter förstärkningen i Dispatch', !!scanning);
+        const gs = await until(async () => { const g = (await list())[0].gain_scan; return g && g.done_at ? g : null; }, 20000, 300);
+        check('mätningen: resultatet med förslaget 40,2 dB i Dispatch', gs && gs.ok && gs.result && gs.result.steps.length === 5 && gs.result.suggestion.gain === 40.2, gs);
+        check('mätningen: ett rtl_sdr per steg', ['0', '30', '36.4', '40.2', '49.6'].every(g => sdrArgs().some(l => l.includes(`-g ${g} `))), sdrArgs());
+        check('mätningen: mottagningen igång igen', !!(await until(async () => (await list())[0].status.sdr.state === 'running', 6000)));
         r = await s.request('PUT', `/api/admin/mottagare/${id}`, { config: { gain: 30.7, ppm: -3 } }, ADM);
-        check('förstärkning och ppm: rtl_fm startas om med -g 30.7 -p -3', !!(await until(() => rtlArgs().some(l => /-g 30\.7 -p -3/.test(l)), 3000, 50)), rtlArgs());
+        check('förstärkning och ppm: rtl_sdr startas om med -g 30.7 -p -3', !!(await until(() => sdrArgs().slice(-1)[0].includes('-g 30.7 -p -3'), 3000, 50)), sdrArgs());
+        // Endast ljud (reserven): rtl_fm, ingen signalstyrka
+        r = await s.request('PUT', `/api/admin/mottagare/${id}`, { config: { rx_mode: 'fm' } }, ADM);
+        check('Endast ljud: rtl_fm startar', !!(await until(() => rtlArgs().some(l => /^-f 69718750 -M fm -s 24000 -E dc -g 30\.7 -p -3 -$/.test(l)), 3000, 50)), rtlArgs());
+        const fm = await until(async () => { const x = (await list())[0].status.sdr; return x.mode === 'fm' && x.state === 'running' ? x : null; }, 5000);
+        check('Endast ljud: livssignalen utan brusgolv', fm && fm.noise_dbfs === null, fm);
+        r = await s.request('PUT', `/api/admin/mottagare/${id}`, { config: { rx_mode: 'iq' } }, ADM);
+        check('tillbaka till Signalstyrka: rtl_sdr', !!(await until(async () => (await list())[0].status.sdr.mode === 'iq', 5000)));
 
         // 5. Kommandon
         r = await s.request('POST', `/api/admin/mottagare/${id}/command`, { cmd: 'restart' }, ADM);
@@ -171,8 +193,8 @@ const form = (p, o) => portal(p, { method: 'POST', headers: { 'content-type': 'a
         const tokenBefore = JSON.parse(fs.readFileSync(path.join(STATE, 'state.json'), 'utf8')).token;
         startPi();   // som systemd gör
         check('efter omstarten: godkänd med samma nyckel, inställningarna gäller utan Dispatch', !!(await until(async () => (await pstat()).dispatch.state === 'approved', 8000))
-              && JSON.parse(fs.readFileSync(path.join(STATE, 'state.json'), 'utf8')).token === tokenBefore && rtlArgs().slice(-1)[0].includes('-g 30.7'));
-        check('inget nytt kommando körs efter omstarten', (await list())[0].commands.length === 1);
+              && JSON.parse(fs.readFileSync(path.join(STATE, 'state.json'), 'utf8')).token === tokenBefore && sdrArgs().slice(-1)[0].includes('-g 30.7'));
+        check('inget nytt kommando körs efter omstarten', (await list())[0].commands[0].cmd === 'restart' && (await list())[0].commands.length === 2);
         r = await s.request('POST', `/api/admin/mottagare/${id}/command`, { cmd: 'update' }, ADM);
         cmd = await until(async () => { const c = (await list())[0].commands[0]; return c.cmd === 'update' && c.done_at ? c : null; }, 12000, 300);
         check('Uppdatera: resultatet kommer tillbaka', cmd && cmd.ok === true && /Redan senaste/.test(cmd.message), cmd);

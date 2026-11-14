@@ -9,6 +9,8 @@
 // tar 0,44 s. MARGIN_S ger diskriminatorn tid att svänga in i början av fönstret.
 // För säkerhets skull kastas också samma data som redan rapporterats inom DUP_MS (150 ms).
 // För varje ram anges om squelchen var öppen och hur mycket bruset var nedtryckt (info() vid push).
+// 0.4.0: med rtl_sdr ger info() också effekten i kanalen (power_dbfs) och klippningen (clip) för blocket. Ramen får
+// signal_dbfs = medianen av blocken under ramen och clipped = true när något block under ramen klippte.
 // ============================================================================
 'use strict';
 
@@ -21,8 +23,8 @@ const MARGIN_S = 0.05;
 const DUP_MS = 150;
 
 class FfskStream {
-    // onFrames(list): list = [{ at, at_ms, payload, address, sync, inverted, codewords, squelch_open, level_db }]
-    // info(): { open, quiet } just nu (squelchens läge när ljudet kom)
+    // onFrames(list): list = [{ at, at_ms, payload, address, sync, inverted, codewords, squelch_open, level_db, signal_dbfs, clipped }]
+    // info(): { open, quiet, power_dbfs, clip } just nu (squelchens läge, effekten och klippningen när ljudet kom)
     constructor({ rate, onFrames, info, now, onError }) {
         this.rate = rate;
         this.W = Math.round(WINDOW_S * rate);
@@ -42,7 +44,7 @@ class FfskStream {
         this.total = 0;        // antal sampel sedan reset
         this.nextEnd = this.W; // absolut slut på nästa fönster
         this.first = true;
-        this.marks = [];       // [absolut index, open, quiet]
+        this.marks = [];       // [absolut index, open, quiet, power_dbfs, clip]
         this.recent = [];      // [ms, payload]
         this.windows = 0;
     }
@@ -51,7 +53,8 @@ class FfskStream {
         const n = Buffer.isBuffer(data) ? data.length >> 1 : data.length;
         if (!n) return;
         const inf = this.info() || {};
-        this.marks.push([this.total, !!inf.open, Number.isFinite(inf.quiet) ? inf.quiet : null]);
+        this.marks.push([this.total, !!inf.open, Number.isFinite(inf.quiet) ? inf.quiet : null,
+            Number.isFinite(inf.power_dbfs) ? inf.power_dbfs : null, Number(inf.clip) || 0]);
         if (this.len + n > this.buf.length) {
             const nb = new Int16Array(Math.max(this.buf.length * 2, this.len + n));
             nb.set(this.buf.subarray(0, this.len));
@@ -87,10 +90,20 @@ class FfskStream {
             this.recent.push([ms, fr.payload]);
             // squelchens läge mitt i ramen
             const mid = abs + Math.round((16 + fr.codewords * 64) / 2 / 1200 * this.rate);
+            const endAbs = abs + Math.round((16 + fr.codewords * 64) / 1200 * this.rate);
             let mk = null;
-            for (const m of this.marks) { if (m[0] <= mid) mk = m; else break; }
+            const pw = [];
+            let clipped = false;
+            for (let k = 0; k < this.marks.length; k++) {
+                const m = this.marks[k];
+                if (m[0] <= mid) mk = m;
+                const to = k + 1 < this.marks.length ? this.marks[k + 1][0] : this.total;
+                if (to > abs && m[0] < endAbs) { if (m[3] !== null) pw.push(m[3]); if (m[4] > 0) clipped = true; }
+            }
+            pw.sort((x, y) => x - y);
             out.push({ at: new Date(ms).toISOString(), at_ms: ms, payload: fr.payload, address: fr.address, sync: fr.sync, inverted: fr.inverted,
-                       codewords: fr.codewords, squelch_open: !!(mk && mk[1]), level_db: mk && mk[2] !== null ? Math.round(mk[2] * 10) / 10 : null });
+                       codewords: fr.codewords, squelch_open: !!(mk && mk[1]), level_db: mk && mk[2] !== null ? Math.round(mk[2] * 10) / 10 : null,
+                       signal_dbfs: pw.length ? Math.round(pw[Math.floor(pw.length / 2)] * 10) / 10 : null, clipped });
         }
         // Behåll det som nästa fönster behöver
         const keepFrom = end + this.step - this.W;

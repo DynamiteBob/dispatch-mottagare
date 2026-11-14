@@ -23,7 +23,13 @@ leverera genom push till `main`, skriv text enligt skillen naturlig-text.
 - `src/dispatch.js` pratar med Dispatch: anmälan, long polling (`/api/mottagare/poll`), livssignal, uppladdning, kvittenser.
 - `src/net.js` styr NetworkManager och mottagarens eget wifi (hotspot, 10.42.0.1).
 - `src/portal.js` är inställningssidan på port 80, utan skript.
-- `src/sdr.js` startar `rtl_fm`; `src/squelch.js` är brussquelchen och inspelningen; `src/queue.js` kön på disk.
+- `src/sdr.js` startar `rtl_sdr` (0.4.0, Mottagning: Signalstyrka, `rx_mode` 'iq') eller `rtl_fm` (Endast ljud, 'fm', reserven).
+  `src/iq.js` FM-demodulerar I/Q (240 000 sampel/s, stickan 60 kHz över kanalen, kanalfilter 10 kHz, decimering till 24 kHz) och
+  ger block om 20 ms med effekten i kanalen (dBFS) och klippningen. Ramarna får `signal_dbfs`, `gain_db` (ur "Tuner gain set to")
+  och `clipped`; Dispatch räknar om till dBm (`radio90.js`, `DBM_OFFSET` −30 + kalibreringen). Livssignalen: `sdr.mode`, `gain_db`,
+  `noise_dbfs`, `clip_pct`, `quant_dbfs`, `scan`; `decoder.clipped`, `clipped_at`. Kommandot `gain_scan` (`scanGain()`, `suggestGain()`):
+  ett `rtl_sdr` per steg i `SCAN_GAINS`, resultatet skickas med kvittensen (`commandDone(id, ok, msg, result)`).
+  `src/squelch.js` är brussquelchen och inspelningen; `src/queue.js` kön på disk.
 - `src/ffsk.js` avkodar FFSK (0.2.0). `src/ffskstream.js` (0.3.0) kör avkodaren på hela ljudströmmen i fönster om 2 s med
   0,6 s överlapp, oberoende av squelchen; squelchen (`src/squelch.js`) styr bara inspelningarna. `src/aurora.js` tolkar
   Aurora-meddelandet; `src/msgqueue.js` är kön för meddelandena (`meddelanden.json`). Dispatch tolkar om rådata själv
@@ -40,7 +46,7 @@ Dispatch-sidan finns i `mottagare.js` och `radio90.js` i Dispatch-repot (API), "
 
 ## Tester
 
-`node test/kor_alla.js`. `test_e2e.js` kräver Dispatch-repot bredvid eller `DISPATCH_DIR`. Falska `nmcli`, `rtl_fm`, `timedatectl`
+`node test/kor_alla.js`. `test_e2e.js` kräver Dispatch-repot bredvid eller `DISPATCH_DIR`. Falska `nmcli`, `rtl_sdr` (`test/iqgen.js` gör I/Q), `rtl_fm`, `timedatectl`
 och uppdatering finns i `test/falska/`. Miljövariablerna `MOTTAGARE_*` (se källfilerna) byter sökvägar och tider i testerna.
 
 ## Integritet

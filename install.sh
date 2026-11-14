@@ -7,7 +7,7 @@
 #
 # Skriptet kan köras igen: det uppdaterar programmet och skriver om systemfilerna, men behåller inställningarna.
 #  - paketen git, nodejs, rtl-sdr, network-manager, dnsmasq-base
-#  - Linux egen DVB-drivrutin för stickan stängs av (annars kommer rtl_fm inte åt den)
+#  - Linux egen DVB-drivrutin för stickan stängs av (annars kommer rtl_sdr och rtl_fm inte åt den)
 #  - användaren mottagare (systemanvändare) med rätt till USB-stickan och sudo för nmcli, reboot och uppdateringen
 #  - programmet i /opt/dispatch-mottagare (git, senaste taggen, som heter som versionen utan v), inställningarna i /var/lib/dispatch-mottagare
 #  - tjänsten dispatch-mottagare (systemd) som startar vid uppstart och startas om om den stannar
@@ -37,7 +37,7 @@ systemctl is-active --quiet NetworkManager || die "NetworkManager körs inte. Ra
 
 say "2/7 Stänger av Linux DVB-drivrutin för RTL-SDR"
 cat > /etc/modprobe.d/dispatch-mottagare-rtlsdr.conf <<'EOF'
-# Dispatch-mottagare: RTL-SDR-stickan används av rtl_fm, inte som TV-mottagare
+# Dispatch-mottagare: RTL-SDR-stickan används av rtl_sdr och rtl_fm, inte som TV-mottagare
 blacklist dvb_usb_rtl28xxu
 blacklist rtl2832
 blacklist rtl2830

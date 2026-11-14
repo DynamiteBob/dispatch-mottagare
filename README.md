@@ -1,6 +1,6 @@
 # Dispatch-mottagare
 
-Program för en Raspberry Pi med en RTL-SDR-sticka. Mottagaren lyssnar på en frekvens och avkodar positionerna som Ericsson Aurora (C50) skickar med FFSK. Positionerna skickas till Dispatch och visas i lagret Radio 90 på kartan. Avkodaren lyssnar hela tiden, oberoende av squelchen. Mottagaren kan också spela in det som squelchen öppnar för och skicka inspelningarna till Dispatch; squelchen styr bara inspelningarna.
+Program för en Raspberry Pi med en RTL-SDR-sticka. Mottagaren lyssnar på en frekvens, avkodar positionerna som Ericsson Aurora (C50) skickar med FFSK och mäter signalstyrkan. Positionerna skickas till Dispatch och visas i lagret Radio 90 på kartan. Avkodaren lyssnar hela tiden, oberoende av squelchen. Mottagaren kan också spela in det som squelchen öppnar för och skicka inspelningarna till Dispatch; squelchen styr bara inspelningarna.
 
 Formatet står i [docs/aurora-ffsk.md](docs/aurora-ffsk.md).
 
@@ -28,6 +28,16 @@ Allt som mottagaren ska göra ställs in i Dispatch, under Adminportalen → Mot
 4. Ange frekvensen i Dispatch. Mottagaren börjar lyssna inom en sekund.
 
 Skriptet går att köra igen. Det uppdaterar programmet och systemfilerna men behåller inställningarna.
+
+## Signalstyrka och förstärkning
+
+Sedan version 0.4.0 läser mottagaren radiosignalen med `rtl_sdr` och mäter signalstyrkan för varje meddelande (Mottagning: Signalstyrka i Dispatch). Värdet är effekten i kanalen i dBFS, och Dispatch räknar om det till ungefärliga dBm med förstärkningen och mottagarens kalibrering. Signalstyrkan kräver fast förstärkning; med Automatisk ändrar stickan förstärkningen själv och värdena går inte att jämföra.
+
+Stickan har inget kalibrerat mått. Fältet Kalibrering i Dispatch rättar värdet: mät med ett instrument eller en radio som visar signalstyrkan på samma plats och skriv in skillnaden.
+
+Ställ in förstärkning automatiskt (knappen i Dispatch) provar förstärkningsstegen. Vid låg förstärkning är brusgolvet omvandlarens eget brus och står still; när förstärkningen höjs börjar stickans och antennens brus synas och brusgolvet stiger. Mottagaren föreslår det lägsta steget där brusgolvet ligger minst 8 dB över det lägsta, utan klippning. Högre förstärkning än så ger inte bättre känslighet, bara mindre marginal mot starka signaler. Gör mätningen när ingen sänder på kanalen.
+
+Mottagning: Endast ljud använder `rtl_fm` som före 0.4.0, utan signalstyrka. Den finns som reserv om avkodningen skulle bli sämre med den nya demoduleringen.
 
 ## Eget wifi och inställningssidan
 
@@ -66,4 +76,4 @@ Knappen Uppdatera i Dispatch hämtar den senaste taggen (`0.3.0`, `0.3.1` …) f
 node test/kor_alla.js
 ```
 
-`test/test_e2e.js` kör mottagaren mot den riktiga Dispatch-testservern och kräver Dispatch-repot bredvid (`../dispatch`) eller `DISPATCH_DIR`. Den använder en falsk `nmcli` och en falsk `rtl_fm` i `test/falska/`.
+`test/test_e2e.js` kör mottagaren mot den riktiga Dispatch-testservern och kräver Dispatch-repot bredvid (`../dispatch`) eller `DISPATCH_DIR`. Den använder en falsk `nmcli`, en falsk `rtl_sdr` och en falsk `rtl_fm` i `test/falska/`.

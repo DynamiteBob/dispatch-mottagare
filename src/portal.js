@@ -23,7 +23,8 @@ const SDR_TEXT = {
     no_device: 'Ingen RTL-SDR-sticka hittades.',
     starting: 'Startar mottagningen …',
     running: 'Lyssnar',
-    error: 'Fel i mottagningen'
+    error: 'Fel i mottagningen',
+    scanning: 'Mäter förstärkningen …'
 };
 const CSS = `body{font:16px/1.45 -apple-system,system-ui,"Segoe UI",Roboto,sans-serif;margin:0;background:#0f1419;color:#e6e8eb}
 main{max-width:34rem;margin:0 auto;padding:1rem}h1{font-size:1.3rem;margin:.2rem 0 1rem}h2{font-size:1.05rem;margin:0 0 .6rem}

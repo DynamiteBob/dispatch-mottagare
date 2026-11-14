@@ -8,7 +8,7 @@ Formatet är taget fram ur inspelningar från en Aurora C50 med GPS, i november 
 - Förspel med 1010… och sedan synkordet SYNT, `0x3B28` (16 bitar), som i MPT 1327.
 - Efter synkordet kommer fyra kodord om 64 bitar.
 
-Mottagaren tar FM-demodulerat ljud från `rtl_fm` (24 kHz) och avkodar hela strömmen, oberoende av squelchen (sedan 0.3.0), i fönster om 2 sekunder med 0,6 sekunders överlapp. Varje ram räknas i exakt ett fönster. Avkodaren provar alla bitlägen inom en bit och båda polariteterna (synkordet inverterat), eftersom det beror på mottagaren vilket håll diskriminatorn ger.
+Mottagaren FM-demodulerar radiosignalen från `rtl_sdr` själv (sedan 0.4.0, `src/iq.js`; med Endast ljud tar den ljudet från `rtl_fm`) till 24 kHz och avkodar hela strömmen, oberoende av squelchen (sedan 0.3.0), i fönster om 2 sekunder med 0,6 sekunders överlapp. Varje ram räknas i exakt ett fönster. Avkodaren provar alla bitlägen inom en bit och båda polariteterna (synkordet inverterat), eftersom det beror på mottagaren vilket håll diskriminatorn ger.
 
 ## Kodorden
 

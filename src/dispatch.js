@@ -147,8 +147,8 @@ class DispatchClient {
             if (r.status === 200) { this.lastOkAt = new Date().toISOString(); }
         } catch (e) { /* pollningen visar felet */ }
     }
-    async commandDone(id, ok, message) {
-        try { await this.req('POST', `/api/mottagare/commands/${id}/done`, { body: { ok, message } }); return true; } catch (e) { return false; }
+    async commandDone(id, ok, message, result) {
+        try { await this.req('POST', `/api/mottagare/commands/${id}/done`, { body: result ? { ok, message, result } : { ok, message } }); return true; } catch (e) { return false; }
     }
     async uploadMessages() {
         const s = state.get();
