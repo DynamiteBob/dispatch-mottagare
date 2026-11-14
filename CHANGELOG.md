@@ -10,6 +10,14 @@ Rubrikerna under varje version:
 - **Ändrat** – funktioner som fungerar annorlunda än tidigare
 - **Rättat** – fel som har rättats
 
+## 0.4.1 – 2026-11-14
+
+Kräver Dispatch 1.65.3 för att källan Serieport ska gå att välja. Med en äldre Dispatch fungerar mottagaren som förut.
+
+### Nytt
+- Källan Serieport: mottagaren kan läsa kontakten J3 på en Ericsson Aurora med GPS i stället för en RTL-SDR-sticka. Radion skriver en rad ($PNIGPS) för varje FFSK-position den tar emot från en annan radio, och mottagaren skickar raden till Dispatch. Använd en USB-adapter för RS-232. Port och hastighet (förvalt 4 800 baud) väljs i Dispatch.
+- Rader med fel kontrollsumma skickas inte. Andra radtyper räknas och visas i Dispatch, och de senaste raderna från porten går att visa där. Det underlättar när en radio kopplas in första gången.
+
 ## 0.4.0 – 2026-11-14
 
 Kräver Dispatch 1.65.2 för att signalstyrkan, varningarna och Ställ in förstärkning automatiskt ska synas. Med en äldre Dispatch avkodar mottagaren som förut.

@@ -17,7 +17,8 @@
 //  - Stickorna listas ur /sys/bus/usb/devices (Realtek 0bda:2838/2832), utan att öppna dem.
 //  - Startar inte rtl_fm (fel, stickan saknas eller upptagen) försöker den igen efter 5 s, sedan längre (högst 60 s).
 //  - Kommer inget ljud på 10 s startas rtl_fm om (stickor kan sluta leverera utan att processen dör).
-// Läget (state): no_freq (ingen frekvens inställd), no_device (ingen sticka), starting, running, error.
+// Läget (state): no_freq (ingen frekvens inställd), no_device (ingen sticka), starting, running, error,
+// off (0.4.1: källan är Serieport, serial.js, och stickan används inte).
 // MOTTAGARE_RTL_FM och MOTTAGARE_RTL_SDR byter programmen och MOTTAGARE_SYSFS_USB mappen i testerna.
 // ============================================================================
 'use strict';
@@ -124,7 +125,7 @@ class Sdr {
         this.squelch.setConfig(this.config);
         if ((old.decode !== false) !== (this.config.decode !== false)) this.stream.reset();
         if (this.scanning) return;   // startas med de nya inställningarna när mätningen är klar
-        const keys = ['freq_hz', 'gain', 'ppm', 'device', 'rx_mode'];
+        const keys = ['freq_hz', 'gain', 'ppm', 'device', 'rx_mode', 'source'];
         if (this.proc && keys.every(k => old[k] === this.config[k])) return;
         this.retryMs = 5000;
         this.restart();
@@ -146,6 +147,7 @@ class Sdr {
     restart() {
         clearTimeout(this.timer);
         this.stop();
+        if (this.config.source === 'serial') { this.state = 'off'; this.error = null; return; }   // 0.4.1
         if (!this.config.freq_hz) { this.state = 'no_freq'; this.error = null; return; }
         const devs = listDevices();
         if (!devs.length && !FAKE_TOOLS) { this.state = 'no_device'; this.error = 'Ingen RTL-SDR-sticka hittades.'; this.later(); return; }
@@ -226,6 +228,7 @@ class Sdr {
     // ---------- Mätning av förstärkningen (0.4.0) ----------
     async scanGain() {
         if (this.scanning) throw new Error('En mätning pågår redan.');
+        if (this.config.source === 'serial') throw new Error('Källan är Serieport (J3); stickan används inte.');
         if (!this.config.freq_hz) throw new Error('Ingen frekvens är inställd.');
         clearTimeout(this.timer);
         this.stop();

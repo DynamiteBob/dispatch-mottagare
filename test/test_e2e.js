@@ -7,7 +7,8 @@
 //     (0.2.0) FFSK-skuren (Aurora, påhittade värden) avkodas och syns som Radio 90 i Dispatch; inspelning och avkodning av;
 //     (0.3.0) avkodning med squelchen stängd; (0.4.0) signalstyrkan i dBm i Dispatch, livssignalens brusgolv
 //  4. förstärkning ändras → rtl_sdr startas om med -g; squelch ändras → startas inte om; (0.4.0) Ställ in förstärkning
-//     automatiskt (resultatet i Dispatch), Endast ljud → rtl_fm, tillbaka till Signalstyrka
+//     automatiskt (resultatet i Dispatch), Endast ljud → rtl_fm, tillbaka till Signalstyrka;
+//     (0.4.1) källan Serieport: en $PNIGPS-rad från J3 (FIFO som port) syns som Radio 90 med mottagaren (J3)
 //  5. Starta om programmet (avslutas, startas igen med samma nyckel), Uppdatera (resultatet kommer tillbaka)
 //  6. mottagaren tystnar → Tyst i Dispatch och i aktivitetsloggen, tillbaka → kontakt igen
 //  7. borttagen i Dispatch → anmäler sig igen med en ny kod
@@ -36,6 +37,8 @@ fs.writeFileSync(path.join(NM, 'state.json'), JSON.stringify({ mode: 'none', sav
 const RTL_LOG = path.join(tmp, 'rtl.log'), SDR_LOG = path.join(tmp, 'sdr.log');
 const PORTAL = 8191;
 const F = path.join(__dirname, 'falska');
+const SDEV = path.join(tmp, 'dev');
+fs.mkdirSync(SDEV);
 const rtlArgs = () => { try { return fs.readFileSync(RTL_LOG, 'utf8').trim().split('\n'); } catch (e) { return []; } };
 const sdrArgs = () => { try { return fs.readFileSync(SDR_LOG, 'utf8').trim().split('\n'); } catch (e) { return []; } };
 const nmCalls = () => { try { return fs.readFileSync(path.join(NM, 'calls.log'), 'utf8'); } catch (e) { return ''; } };
@@ -47,7 +50,7 @@ function startPi() {
     proc = spawn(process.execPath, [path.join(__dirname, '..', 'src', 'main.js')], {
         env: Object.assign({}, process.env, {
             MOTTAGARE_STATE_DIR: STATE, MOTTAGARE_RUN_DIR: RUN, MOTTAGARE_PORTAL_PORT: String(PORTAL), MOTTAGARE_PORTAL_OPEN: '1',
-            MOTTAGARE_SUDO: '', MOTTAGARE_NMCLI: path.join(F, 'nmcli'), MOTTAGARE_RTL_FM: path.join(F, 'rtl_fm'), MOTTAGARE_RTL_SDR: path.join(F, 'rtl_sdr'), MOTTAGARE_UPDATER: path.join(F, 'uppdatera'), MOTTAGARE_TIMEDATECTL: path.join(F, 'timedatectl'),
+            MOTTAGARE_SUDO: '', MOTTAGARE_NMCLI: path.join(F, 'nmcli'), MOTTAGARE_RTL_FM: path.join(F, 'rtl_fm'), MOTTAGARE_RTL_SDR: path.join(F, 'rtl_sdr'), MOTTAGARE_SERIAL_DEVDIR: SDEV, MOTTAGARE_STTY: path.join(F, 'stty'), MOTTAGARE_UPDATER: path.join(F, 'uppdatera'), MOTTAGARE_TIMEDATECTL: path.join(F, 'timedatectl'),
             MOTTAGARE_HW_ID: '10000000e2e0ab12', MOTTAGARE_HB_MS: '1000', MOTTAGARE_BOOT_MS: '1500', MOTTAGARE_NET_TICK_MS: '300', MOTTAGARE_OK_MS: '500',
             FAKE_NM_DIR: NM, FAKE_RTL_LOG: RTL_LOG, FAKE_SDR_LOG: SDR_LOG,
             MOTTAGARE_SCAN_GAINS: '0,30,36.4,40.2,49.6', MOTTAGARE_SCAN_SKIP_MS: '200', MOTTAGARE_SCAN_MEASURE_MS: '500'
@@ -184,6 +187,25 @@ const form = (p, o) => portal(p, { method: 'POST', headers: { 'content-type': 'a
         check('Endast ljud: livssignalen utan brusgolv', fm && fm.noise_dbfs === null, fm);
         r = await s.request('PUT', `/api/admin/mottagare/${id}`, { config: { rx_mode: 'iq' } }, ADM);
         check('tillbaka till Signalstyrka: rtl_sdr', !!(await until(async () => (await list())[0].status.sdr.mode === 'iq', 5000)));
+        // 0.4.1: källan Serieport (J3 på en Aurora). Porten är en FIFO; testet skriver det radion skulle skriva.
+        const port = path.join(SDEV, 'ttyUSB0');
+        require('child_process').execFileSync('mkfifo', [port]);
+        const wfd = fs.openSync(port, fs.constants.O_RDWR);
+        const ports = await until(async () => { const sp = (await list())[0].status.serial; return sp && sp.ports.some(x => x.path === port) ? sp.ports : null; }, 5000);
+        check('Serieport: porten syns i livssignalen', !!ports, (await list())[0].status.serial);
+        r = await s.request('PUT', `/api/admin/mottagare/${id}`, { config: { source: 'serial', serial_port: port } }, ADM);
+        const ser = await until(async () => { const x = (await list())[0].status; return x.source === 'serial' && x.serial.state === 'running' && x.sdr.state === 'off' ? x : null; }, 6000);
+        check('Serieport: porten läses och stickan stängs', !!ser, (await list())[0].status);
+        const nmea = (b) => { let x = 0; for (const c of b) x ^= c.charCodeAt(0); return `$${b}*${x.toString(16).toUpperCase().padStart(2, '0')}`; };
+        fs.writeSync(wfd, nmea('PNIGPS,234560,34,,5921.0000,N,01805.0000,E,,,061.5,,,,,,') + '\r\n' + nmea('GPRMC,1') + '\r\n');
+        const j3 = await until(async () => { const j = (await s.request('GET', '/api/karta/radio90', undefined, ADM)).json; return (j.items || []).find(i => i.id === '23456'); }, 8000, 300);
+        check('Serieport: positionen i Dispatch med mottagaren (J3)', j3 && j3.position && Math.abs(j3.position.lat - (59 + 21 / 60)) < 1e-6 && j3.speed_kmh === 61.5 && j3.status === '34'
+              && j3.receivers.includes('Mottagare Ljusdal (J3)'), j3);
+        const sst = await until(async () => { const x = (await list())[0].status.serial; return x.ok >= 1 && x.types.GPRMC === 1 ? x : null; }, 5000);
+        check('Serieport: livssignalen räknar raderna och typerna', !!sst, (await list())[0].status.serial);
+        r = await s.request('PUT', `/api/admin/mottagare/${id}`, { config: { source: 'sdr' } }, ADM);
+        check('tillbaka till RTL-SDR', !!(await until(async () => { const x = (await list())[0].status; return x.source === 'sdr' && x.sdr.state === 'running'; }, 6000)));
+        fs.closeSync(wfd);
 
         // 5. Kommandon
         r = await s.request('POST', `/api/admin/mottagare/${id}/command`, { cmd: 'restart' }, ADM);

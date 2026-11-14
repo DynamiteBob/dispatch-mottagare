@@ -9,6 +9,7 @@
 //  - ffsk.js      (0.2.0) avkodar FFSK; ffskstream.js (0.3.0) kör avkodaren på hela strömmen, oberoende av squelchen.
 //                 aurora.js tolkar Aurora-meddelandet.
 //                 Meddelandena läggs i msgqueue.js och skickas till Dispatch (POST /api/mottagare/messages).
+//  - serial.js    (0.4.1) källan Serieport: $PNIGPS-raderna från J3 på en Aurora skickas som rådata (source 'j3', line)
 // Kommandon från Dispatch: restart (programmet avslutas och systemd startar det igen), reboot (sudo reboot),
 // update (bin/uppdatera.sh körs som en egen systemd-enhet, så att den överlever att tjänsten startas om) och
 // gain_scan (0.4.0: mäter brusgolv och klippning för varje förstärkningssteg; resultatet skickas med kvittensen).
@@ -26,6 +27,7 @@ const { Queue } = require('./queue');
 const { MsgQueue } = require('./msgqueue');
 const aurora = require('./aurora');
 const { Sdr } = require('./sdr');
+const { SerialJ3 } = require('./serial');
 const { wav } = require('./wav');
 const { NetManager } = require('./net');
 const { DispatchClient, normalizeUrl } = require('./dispatch');
@@ -91,6 +93,20 @@ const sdr = new Sdr({
     }
 });
 
+// 0.4.1: källan Serieport (J3). Varje $PNIGPS-rad är en FFSK-position som radion har tagit emot; Dispatch tolkar raden.
+// freq_hz är radions kanal om den har angetts (för missade meddelanden i Täckning).
+const serial = new SerialJ3({ onLine: (line, at) => {
+    if (cfg().decode === false) return;
+    const id = (/^\$PNIGPS,(\d{5})/.exec(line) || [])[1] || null;
+    const fix = !!(/^\$PNIGPS,[^,]*,[^,]*,[^,]*,\d/.test(line));
+    msgs.add([{ at, source: 'j3', line, freq_hz: cfg().freq_hz || 0, id, fix }]);
+    decoded.count++;
+    decoded.last_at = at;
+    decoded.last_id = id;
+    log(`J3: ID ${id || '?'}${fix ? '' : ' (ingen GPS-fix)'} ${line}`);
+    client.uploadMessages();
+} });
+
 const ssid = () => `Dispatch-mottagare-${String(hwId).slice(-4).toUpperCase()}`;
 const psk = () => { const s = state.get(); return (s.config && s.config.hotspot_psk) || s.hotspot_psk; };
 const net = new NetManager({ ssidFn: ssid, pskFn: psk, runDir: state.RUN_DIR });
@@ -112,13 +128,16 @@ function statusFn() {
         decoder: { enabled: cfg().decode !== false, count: decoded.count, outside_squelch: decoded.outside, incomplete: decoded.incomplete,
                    clipped: decoded.clipped, clipped_at: decoded.clipped_at,
                    last_at: decoded.last_at, last_id: decoded.last_id, errors: decoded.errors },
-        clock: { synced: system.clockSynced(), now: new Date().toISOString() }   // 0.3.2: Dispatch räknar ut hur mycket klockan går fel
+        clock: { synced: system.clockSynced(), now: new Date().toISOString() },   // 0.3.2: Dispatch räknar ut hur mycket klockan går fel
+        source: cfg().source === 'serial' ? 'serial' : 'sdr',   // 0.4.1
+        serial: Object.assign(serial.status(), { freq_hz: cfg().freq_hz || 0 })
     };
 }
 
 async function onConfig(cfg) {
     const before = state.get().applied_psk;
     sdr.apply(cfg);
+    serial.apply(cfg);
     const p = psk();
     if (before !== p) { state.set({ applied_psk: p }); if (before) await net.restartHotspotIfActive(); }
 }
@@ -179,7 +198,7 @@ async function checkUpdate() {
 }
 setInterval(() => checkUpdate().catch(() => {}), 5000).unref();
 
-if (state.get().config) sdr.apply(state.get().config);
+if (state.get().config) { sdr.apply(state.get().config); serial.apply(state.get().config); }
 if (!state.get().applied_psk) state.set({ applied_psk: psk() });
 net.start();
 client.start();
@@ -193,6 +212,7 @@ setTimeout(() => {
 function shutdown(code) {
     log('avslutar');
     try { sdr.shutdown(); } catch (e) { /* ignoreras */ }
+    try { serial.shutdown(); } catch (e) { /* ignoreras */ }
     client.stop();
     net.stop();
     setTimeout(() => process.exit(code), 200);

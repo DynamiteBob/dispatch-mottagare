@@ -39,6 +39,10 @@ Ställ in förstärkning automatiskt (knappen i Dispatch) provar förstärknings
 
 Mottagning: Endast ljud använder `rtl_fm` som före 0.4.0, utan signalstyrka. Den finns som reserv om avkodningen skulle bli sämre med den nya demoduleringen.
 
+## Serieport (J3 på en Aurora)
+
+Sedan version 0.4.1 kan mottagaren läsa kontakten J3 på en Ericsson Aurora med GPS i stället för en RTL-SDR-sticka. Radion skriver en rad (`$PNIGPS`) för varje FFSK-position den tar emot från en annan radio, i 4 800 baud. Anslut J3 till Pi:n med en USB-adapter för RS-232 och välj Källa: Serieport, porten och hastigheten i Dispatch. Ange radions kanal som frekvens om missade meddelanden ska räknas i Täckning (mottagare).
+
 ## Eget wifi och inställningssidan
 
 Har mottagaren ingen anslutning två minuter efter start, eller tappar den anslutningen i tio minuter, startar den ett eget wifi: `Dispatch-mottagare-XXXX`, där XXXX är slutet av Pi:ns serienummer. Lösenordet visas av installationsskriptet, av `sudo dispatch-mottagare status` och på mottagaren i Dispatch.

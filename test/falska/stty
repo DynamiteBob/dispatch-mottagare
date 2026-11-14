@@ -1,0 +1,5 @@
+#!/bin/sh
+# Falsk stty för testerna (0.4.1): loggar argumenten i FAKE_STTY_LOG. FAKE_STTY_FAIL=1 ger ett fel som stty.
+[ -n "$FAKE_STTY_LOG" ] && echo "$*" >> "$FAKE_STTY_LOG"
+if [ "$FAKE_STTY_FAIL" = "1" ]; then echo "stty: /dev/ttyUSB0: Inappropriate ioctl for device" >&2; exit 1; fi
+exit 0
