@@ -40,19 +40,19 @@ case "${1:-status}" in
         need_root adress
         [ -n "${2:-}" ] || { echo "Ange adressen: sudo dispatch-mottagare adress https://dispatch.exempel.se"; exit 1; }
         systemctl stop $SERVICE
-        URL="$2" node -e "
+        # 0.4.3: filen skrivs som mottagare (mappen ägs av mottagare, och root ska inte följa en symbolisk länk där)
+        runuser -u mottagare -- env URL="$2" node -e "
           const f='$STATE/state.json', fs=require('fs');
           let s={}; try{s=JSON.parse(fs.readFileSync(f,'utf8'))}catch(e){}
           let u=process.env.URL.trim(); if(!/^https?:\/\//i.test(u)) u='https://'+u;
           const p=new URL(u); s.dispatch_url=p.protocol+'//'+p.host+p.pathname.replace(/\/+\$/,'');
           for (const k of ['token','receiver_id','state','pair_code','last_cmd']) delete s[k];
-          fs.writeFileSync(f, JSON.stringify(s,null,2), {mode:0o600}); console.log('Dispatch-adressen är '+s.dispatch_url);"
-        chown mottagare:mottagare "$STATE/state.json"
+          const t=f+'.ny'; fs.writeFileSync(t, JSON.stringify(s,null,2), {mode:0o600}); fs.renameSync(t, f); console.log('Dispatch-adressen är '+s.dispatch_url);"
         systemctl start $SERVICE
         ;;
     hotspot)
         need_root hotspot
-        touch /run/dispatch-mottagare/hotspot && chown mottagare:mottagare /run/dispatch-mottagare/hotspot
+        runuser -u mottagare -- touch /run/dispatch-mottagare/hotspot || exit 1
         echo "Mottagarens eget wifi startar inom tio sekunder. SSH-anslutningen över wifi bryts."
         ;;
     omstart)

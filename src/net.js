@@ -21,7 +21,10 @@ const fs = require('fs');
 const path = require('path');
 const log = require('./log')('NÄT');
 
-const NMCLI = process.env.MOTTAGARE_NMCLI || '/usr/bin/nmcli';
+// 0.4.3: nmcli genom /usr/local/sbin/dispatch-mottagare-nmcli (bin/nmcli-dispatch), som bara släpper igenom de kommandon som
+// används här. Finns skriptet inte än (systemd har inte kört bin/systemfiler.sh) används nmcli direkt, som före 0.4.3.
+const NMCLI_WRAPPER = '/usr/local/sbin/dispatch-mottagare-nmcli';
+const NMCLI = process.env.MOTTAGARE_NMCLI || (fs.existsSync(NMCLI_WRAPPER) ? NMCLI_WRAPPER : '/usr/bin/nmcli');
 const SUDO = process.env.MOTTAGARE_SUDO !== undefined ? process.env.MOTTAGARE_SUDO : 'sudo';
 const BOOT_MS = parseInt(process.env.MOTTAGARE_BOOT_MS, 10) || 120000;
 const LOST_MS = parseInt(process.env.MOTTAGARE_LOST_MS, 10) || 600000;

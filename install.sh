@@ -66,17 +66,12 @@ VERSION=$(node -p "require('$DIR/package.json').version")
 echo "Version $VERSION"
 ln -sf "$DIR/bin/uppdatera.sh" /usr/local/sbin/dispatch-mottagare-uppdatera
 ln -sf "$DIR/bin/dispatch-mottagare" /usr/local/bin/dispatch-mottagare
-chmod 755 "$DIR/bin/uppdatera.sh" "$DIR/bin/dispatch-mottagare"
+chmod 755 "$DIR/bin/uppdatera.sh" "$DIR/bin/dispatch-mottagare" "$DIR/bin/nmcli-dispatch" "$DIR/bin/systemfiler.sh"
 
 say "5/7 Behörigheter (sudo) och hotspotens namnserver"
-cat > /etc/sudoers.d/dispatch-mottagare <<EOF
-# Dispatch-mottagare: nätet, omstart och uppdatering
-$USER_NAME ALL=(root) NOPASSWD: /usr/bin/nmcli
-$USER_NAME ALL=(root) NOPASSWD: /usr/sbin/reboot
-$USER_NAME ALL=(root) NOPASSWD: /usr/bin/systemd-run --unit=dispatch-mottagare-uppdatering --collect /usr/local/sbin/dispatch-mottagare-uppdatera
-EOF
-chmod 0440 /etc/sudoers.d/dispatch-mottagare
-visudo -cf /etc/sudoers.d/dispatch-mottagare >/dev/null || { rm -f /etc/sudoers.d/dispatch-mottagare; die "sudo-filen blev fel."; }
+# 0.4.3: regeln står i systemd/sudoers (nmcli bara genom /usr/local/sbin/dispatch-mottagare-nmcli). systemfiler.sh kontrollerar
+# den med visudo och installerar den, och körs också av systemd varje gång tjänsten startar.
+MOTTAGARE_DIR="$DIR" MOTTAGARE_USER="$USER_NAME" bash "$DIR/bin/systemfiler.sh" || die "sudo-filen blev fel."
 mkdir -p /etc/NetworkManager/dnsmasq-shared.d
 cat > /etc/NetworkManager/dnsmasq-shared.d/dispatch-mottagare.conf <<'EOF'
 # Dispatch-mottagare: på hotspoten pekar alla namn på mottagaren, så att telefonen öppnar inställningssidan

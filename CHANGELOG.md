@@ -10,6 +10,17 @@ Rubrikerna under varje version:
 - **Ändrat** – funktioner som fungerar annorlunda än tidigare
 - **Rättat** – fel som har rättats
 
+## 0.4.3 – 2026-11-22
+
+Kräver ingen ny version av Dispatch.
+
+### Ändrat
+- Programmet får bara köra de nmcli-kommandon som det använder: läsa enheter, wifi-nät och sparade anslutningar, starta, stänga och ta bort en anslutning, och skapa hotspoten eller ett sparat wifi-nät. Tidigare fick användaren mottagare köra alla nmcli-kommandon som root. Sudo-regeln och skriptet som kontrollerar kommandona (`/usr/local/sbin/dispatch-mottagare-nmcli`) installeras när tjänsten startar, så de kommer på plats även när uppdateringen görs med knappen i Dispatch.
+
+### Rättat
+- Uppdateringen (`bin/uppdatera.sh`, körs som root) skriver resultatet i `/var/lib/dispatch-mottagare` som användaren mottagare, och följer inte en symbolisk länk där. Samma sak gäller `sudo dispatch-mottagare adress` och `sudo dispatch-mottagare hotspot`. Loggen från git fetch får ett eget filnamn i /tmp.
+- Går en uppdatering tillbaka till en version från före 0.4.3 läggs den gamla sudo-regeln tillbaka. Det gäller inte den första uppdateringen till 0.4.3, som görs av det gamla uppdateringsskriptet: startar 0.4.3 inte och mottagaren går tillbaka till 0.4.2, fungerar inte hotspoten och nya wifi-nät förrän mottagaren uppdateras igen. Sparade nät ansluter fortfarande.
+
 ## 0.4.2 – 2026-11-14
 
 Dispatch 1.65.5 visar när mottagaren har höjt förstärkningen till 0,9 dB. Mottagaren fungerar också med en äldre Dispatch.

@@ -1,0 +1,5 @@
+# Dispatch-mottagare: nätet, omstart och uppdatering (installeras av install.sh och bin/uppdatera.sh)
+# 0.4.3: nmcli bara genom /usr/local/sbin/dispatch-mottagare-nmcli, som släpper igenom de kommandon programmet använder
+mottagare ALL=(root) NOPASSWD: /usr/local/sbin/dispatch-mottagare-nmcli
+mottagare ALL=(root) NOPASSWD: /usr/sbin/reboot
+mottagare ALL=(root) NOPASSWD: /usr/bin/systemd-run --unit=dispatch-mottagare-uppdatering --collect /usr/local/sbin/dispatch-mottagare-uppdatera

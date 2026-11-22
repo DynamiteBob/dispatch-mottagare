@@ -18,20 +18,26 @@ const check = (n, ok, x) => { console.log((ok ? 'OK   ' : 'FEL  ') + n + (ok || 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'mottagare-upp-'));
 const sh = (cmd, cwd) => execFileSync('bash', ['-c', cmd], { cwd, encoding: 'utf8', env: Object.assign({}, process.env, { GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' }) });
 
+const sudoers = path.join(tmp, 'sudoers.d', 'dispatch-mottagare'), sbin = path.join(tmp, 'sbin');
 const src = path.join(tmp, 'src'), opt = path.join(tmp, 'opt'), st = path.join(tmp, 'state'), run = path.join(tmp, 'run'), units = path.join(tmp, 'units'), bin = path.join(tmp, 'bin');
-for (const d of [src, st, run, units, bin]) fs.mkdirSync(d, { recursive: true });
+for (const d of [src, st, run, units, bin, sbin, path.dirname(sudoers)]) fs.mkdirSync(d, { recursive: true });
 const ROOT = path.join(__dirname, '..');
-function commit(version, tag, noTag) {
+function commit(version, tag, noTag, oldStyle) {
     fs.mkdirSync(path.join(src, 'bin'), { recursive: true });
     fs.mkdirSync(path.join(src, 'systemd'), { recursive: true });
     fs.copyFileSync(path.join(ROOT, 'bin', 'uppdatera.sh'), path.join(src, 'bin', 'uppdatera.sh'));
     fs.copyFileSync(path.join(ROOT, 'bin', 'dispatch-mottagare'), path.join(src, 'bin', 'dispatch-mottagare'));
     fs.copyFileSync(path.join(ROOT, 'systemd', 'dispatch-mottagare.service'), path.join(src, 'systemd', 'dispatch-mottagare.service'));
+    // 0.4.3: sudo-regeln och nmcli-skriptet (oldStyle = en version från före 0.4.3, utan dem)
+    for (const f of [['systemd', 'sudoers'], ['bin', 'nmcli-dispatch'], ['bin', 'systemfiler.sh']]) {
+        const to = path.join(src, ...f);
+        if (oldStyle) { if (fs.existsSync(to)) fs.unlinkSync(to); } else fs.copyFileSync(path.join(ROOT, ...f), to);
+    }
     fs.writeFileSync(path.join(src, 'package.json'), JSON.stringify({ name: 'dispatch-mottagare', version }));
     sh(`git add -A && git commit -qm ${version}${noTag ? '' : ` && git tag ${tag}`}`, src);
 }
 sh('git init -q -b main', src);
-commit('0.1.0', '0.1.0');
+commit('0.1.0', '0.1.0', false, true);
 sh(`git clone -q ${src} ${opt} && git -C ${opt} -c advice.detachedHead=false checkout -q 0.1.0`, tmp);
 // Falsk systemctl: restart "startar" programmet, som skriver ok-filen med versionen, utom när versionen står i FAKE_BROKEN
 fs.writeFileSync(path.join(bin, 'systemctl'), `#!/bin/bash
@@ -43,7 +49,8 @@ esac
 exit 0
 `, { mode: 0o755 });
 const env = Object.assign({}, process.env, { PATH: `${bin}:${process.env.PATH}`, MOTTAGARE_DIR: opt, MOTTAGARE_STATE_DIR: st, MOTTAGARE_RUN_DIR: run,
-    MOTTAGARE_UNIT_DIR: units, MOTTAGARE_UPDATE_WAIT_S: '6' });
+    MOTTAGARE_UNIT_DIR: units, MOTTAGARE_UPDATE_WAIT_S: '6',
+    MOTTAGARE_SUDOERS: sudoers, MOTTAGARE_SBIN: sbin });
 const runUpd = (extra) => { try { execFileSync('bash', [path.join(opt, 'bin', 'uppdatera.sh')], { env: Object.assign({}, env, extra || {}), encoding: 'utf8' }); return 0; } catch (e) { return e.status; } };
 const res = () => JSON.parse(fs.readFileSync(path.join(st, 'uppdatering.json'), 'utf8'));
 const ver = () => JSON.parse(fs.readFileSync(path.join(opt, 'package.json'), 'utf8')).version;
@@ -52,8 +59,20 @@ const log = () => { try { return fs.readFileSync(path.join(tmp, 'systemctl.log')
 try {
     let code = runUpd();
     check('redan senaste: ok utan omstart', code === 0 && res().ok === true && /Redan senaste versionen \(0\.1\.0\)/.test(res().message) && !/restart/.test(log()), [code, res(), log()]);
+    // 0.4.3: resultatfilen skrivs inte genom en symbolisk länk
+    const offer = path.join(tmp, 'offer.txt');
+    fs.writeFileSync(offer, 'orörd');
+    fs.unlinkSync(path.join(st, 'uppdatering.json'));
+    fs.symlinkSync(offer, path.join(st, 'uppdatering.json'));
     commit('0.1.1', '0.1.1');
+    // Den gamla sudo-regeln läggs tillbaka när mottagaren går tillbaka till en version utan systemd/sudoers
+    fs.writeFileSync(sudoers, 'mottagare ALL=(root) NOPASSWD: /usr/bin/nmcli\n');
+    code = runUpd({ FAKE_BROKEN: '0.1.1' });
+    check('0.4.3: resultatet ersätter länken och skriver inte i filen den pekar på', fs.readFileSync(offer, 'utf8') === 'orörd' && !fs.lstatSync(path.join(st, 'uppdatering.json')).isSymbolicLink(), fs.readFileSync(offer, 'utf8'));
+    check('0.4.3: tillbaka till en version utan sudo-regeln: den gamla regeln läggs tillbaka', code === 1 && ver() === '0.1.0' && /\/usr\/bin\/nmcli/.test(fs.readFileSync(sudoers, 'utf8')), [code, ver(), fs.readFileSync(sudoers, 'utf8')]);
     code = runUpd();
+    check('0.4.3: sudo-regeln installeras (bara nmcli-skriptet)', /dispatch-mottagare-nmcli/.test(fs.readFileSync(sudoers, 'utf8')) && !/\/usr\/bin\/nmcli/.test(fs.readFileSync(sudoers, 'utf8')) && (fs.statSync(sudoers).mode & 0o777) === 0o440, fs.readFileSync(sudoers, 'utf8'));
+    check('0.4.3: nmcli-skriptet länkas', fs.readlinkSync(path.join(sbin, 'dispatch-mottagare-nmcli')) === path.join(opt, 'bin', 'nmcli-dispatch'));
     check('ny version startar: uppdaterad till 0.1.1', code === 0 && ver() === '0.1.1' && res().ok === true && res().from === '0.1.0' && res().to === '0.1.1', [code, res()]);
     check('tjänstfilen kopieras och systemd läses om', fs.existsSync(path.join(units, 'dispatch-mottagare.service')) && /daemon-reload/.test(log()));
     commit('0.1.2', '0.1.2');

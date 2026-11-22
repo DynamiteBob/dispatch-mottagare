@@ -39,6 +39,10 @@ const PORTAL = 8191;
 const F = path.join(__dirname, 'falska');
 const SDEV = path.join(tmp, 'dev');
 fs.mkdirSync(SDEV);
+// 0.4.3: nmcli går genom bin/nmcli-dispatch (en kopia som pekar på den falska nmcli), så att allt programmet gör med nätet
+// också provar att skriptet släpper igenom det
+const NMCLI_WRAP = path.join(tmp, 'nmcli-dispatch');
+fs.writeFileSync(NMCLI_WRAP, fs.readFileSync(path.join(__dirname, '..', 'bin', 'nmcli-dispatch'), 'utf8').replace(/^NMCLI=\/usr\/bin\/nmcli$/m, `NMCLI=${path.join(F, 'nmcli')}`), { mode: 0o755 });
 const rtlArgs = () => { try { return fs.readFileSync(RTL_LOG, 'utf8').trim().split('\n'); } catch (e) { return []; } };
 const sdrArgs = () => { try { return fs.readFileSync(SDR_LOG, 'utf8').trim().split('\n'); } catch (e) { return []; } };
 const nmCalls = () => { try { return fs.readFileSync(path.join(NM, 'calls.log'), 'utf8'); } catch (e) { return ''; } };
@@ -50,7 +54,7 @@ function startPi() {
     proc = spawn(process.execPath, [path.join(__dirname, '..', 'src', 'main.js')], {
         env: Object.assign({}, process.env, {
             MOTTAGARE_STATE_DIR: STATE, MOTTAGARE_RUN_DIR: RUN, MOTTAGARE_PORTAL_PORT: String(PORTAL), MOTTAGARE_PORTAL_OPEN: '1',
-            MOTTAGARE_SUDO: '', MOTTAGARE_NMCLI: path.join(F, 'nmcli'), MOTTAGARE_RTL_FM: path.join(F, 'rtl_fm'), MOTTAGARE_RTL_SDR: path.join(F, 'rtl_sdr'), MOTTAGARE_SERIAL_DEVDIR: SDEV, MOTTAGARE_STTY: path.join(F, 'stty'), MOTTAGARE_UPDATER: path.join(F, 'uppdatera'), MOTTAGARE_TIMEDATECTL: path.join(F, 'timedatectl'),
+            MOTTAGARE_SUDO: '', MOTTAGARE_NMCLI: NMCLI_WRAP, MOTTAGARE_RTL_FM: path.join(F, 'rtl_fm'), MOTTAGARE_RTL_SDR: path.join(F, 'rtl_sdr'), MOTTAGARE_SERIAL_DEVDIR: SDEV, MOTTAGARE_STTY: path.join(F, 'stty'), MOTTAGARE_UPDATER: path.join(F, 'uppdatera'), MOTTAGARE_TIMEDATECTL: path.join(F, 'timedatectl'),
             MOTTAGARE_HW_ID: '10000000e2e0ab12', MOTTAGARE_HB_MS: '1000', MOTTAGARE_BOOT_MS: '1500', MOTTAGARE_NET_TICK_MS: '300', MOTTAGARE_OK_MS: '500',
             FAKE_NM_DIR: NM, FAKE_RTL_LOG: RTL_LOG, FAKE_SDR_LOG: SDR_LOG,
             MOTTAGARE_SCAN_GAINS: '0.9,30,36.4,40.2,49.6', MOTTAGARE_SCAN_SKIP_MS: '200', MOTTAGARE_SCAN_MEASURE_MS: '500'
@@ -243,6 +247,7 @@ const form = (p, o) => portal(p, { method: 'POST', headers: { 'content-type': 'a
         r = await s.request('POST', `/api/admin/mottagare/${L[0].id}/approve`, {}, ADM);
         L = await list();
         check('samma Pi utan namn: heter värddatorns namn', L[0].name === os.hostname(), L[0].name);
+        check('0.4.3: nmcli-skriptet nekade inget som programmet gjorde', !/inte tillåtet/.test(out), (out.match(/.*inte tillåtet.*/g) || []).slice(0, 5));
     } catch (e) {
         check('inget undantag', false, e.stack);
     } finally {

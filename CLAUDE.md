@@ -7,8 +7,12 @@ leverera genom push till `main`, skriv text enligt skillen naturlig-text.
 ## Om programmet
 
 - Node.js utan npm-paket (Node 18 eller senare, det som följer med Raspberry Pi OS). Lägg inte till beroenden.
-- Körs som tjänsten `dispatch-mottagare` (användaren `mottagare`, inte root). sudo bara för `nmcli`, `reboot` och
-  uppdateringen (`/etc/sudoers.d/dispatch-mottagare` i `install.sh`).
+- Körs som tjänsten `dispatch-mottagare` (användaren `mottagare`, inte root). sudo bara för `nmcli` (sedan 0.4.3 bara genom
+  `bin/nmcli-dispatch`, länkad som `/usr/local/sbin/dispatch-mottagare-nmcli`, som släpper igenom de kommandon `src/net.js` använder),
+  `reboot` och uppdateringen. Sudo-regeln står i `systemd/sudoers` och installeras av `bin/systemfiler.sh` (som root före varje start,
+  `ExecStartPre=-+` i tjänsten, och av `install.sh` och `bin/uppdatera.sh`). Använder `src/net.js` ett nytt nmcli-kommando ska det
+  läggas till i `bin/nmcli-dispatch` och `test/test_nmcli.js`. Root skriver aldrig med namn i `/var/lib/dispatch-mottagare`
+  (mappen ägs av mottagare): skripten skriver där med `runuser -u mottagare`.
 - Versionen står bara i `package.json`, formatet `0.<release>.<rättning>`. Varje version taggas med versionen utan v (`0.3.1`).
   Taggen och releasen skapas automatiskt av GitHub Actions (`.github/workflows/tagg.yml`) när versionen ändras på `main`;
   releasens text är versionens avsnitt i `CHANGELOG.md`. Skapa inga taggar för hand (sessionens git-proxy släpper inte igenom dem).

@@ -1,0 +1,62 @@
+#!/bin/bash
+# ============================================================================
+# nmcli för Dispatch-mottagaren (0.4.3). Programmet kör som användaren mottagare och får köra nmcli som root med sudo,
+# men bara genom det här skriptet (/usr/local/sbin/dispatch-mottagare-nmcli, sudo-regeln i systemd/sudoers). Skriptet släpper
+# bara igenom de kommandon som src/net.js använder: läsa enheter, wifi-nät och sparade anslutningar, starta, stänga och ta bort
+# en anslutning, och skapa en wifi-anslutning med de inställningar som hotspoten och ett sparat wifi-nät behöver.
+# Allt annat (till exempel att ändra andra anslutningar, lägga till VPN eller byta värdnamn) nekas med slutkod 2.
+# Testerna kör en kopia där raden NMCLI= pekar på den falska nmcli (test/falska/nmcli).
+# ============================================================================
+set -u
+NMCLI=/usr/bin/nmcli
+
+deny() { echo "dispatch-mottagare-nmcli: inte tillåtet: $*" >&2; exit 2; }
+ORIG=("$@")
+FIELDS_RE='^[A-Za-z0-9,._-]{1,200}$'
+
+# Flaggorna före kommandot
+while [ $# -gt 0 ]; do
+    case "$1" in
+        -t) shift ;;
+        -f|-g) [ $# -ge 2 ] && [[ "$2" =~ $FIELDS_RE ]] || deny "fält"; shift 2 ;;
+        --wait) [ $# -ge 2 ] && [[ "$2" =~ ^[0-9]{1,3}$ ]] || deny "--wait"; shift 2 ;;
+        *) break ;;
+    esac
+done
+name_ok() { [ -n "$1" ] && [ "${#1}" -le 200 ] && [ "${1#-}" = "$1" ]; }
+
+case "${1:-} ${2:-}" in
+    "device ")
+        [ $# -eq 1 ] || deny "device" ;;
+    "device wifi")
+        [ $# -eq 5 ] && [ "$3" = list ] && [ "$4" = --rescan ] && { [ "$5" = yes ] || [ "$5" = no ]; } || deny "device wifi" ;;
+    "connection show")
+        [ $# -eq 2 ] || { [ $# -eq 3 ] && name_ok "$3"; } || deny "connection show" ;;
+    "connection delete"|"connection down"|"connection up")
+        [ $# -eq 3 ] && name_ok "$3" || deny "$1 $2" ;;
+    "connection add")
+        shift 2
+        [ $(( $# % 2 )) -eq 0 ] && [ $# -gt 0 ] || deny "connection add"
+        while [ $# -gt 0 ]; do
+            k="$1" v="$2"; shift 2
+            case "$k" in
+                type) [ "$v" = wifi ] || deny "type $v" ;;
+                ifname) [[ "$v" =~ ^[A-Za-z0-9._-]{1,15}$ ]] || deny "ifname" ;;
+                con-name) name_ok "$v" || deny "con-name" ;;
+                ssid) [ -n "$v" ] && [ "${#v}" -le 32 ] || deny "ssid" ;;
+                autoconnect|connection.autoconnect) [ "$v" = yes ] || [ "$v" = no ] || deny "$k" ;;
+                connection.autoconnect-priority) [[ "$v" =~ ^-?[0-9]{1,3}$ ]] || deny "$k" ;;
+                802-11-wireless.mode) [ "$v" = ap ] || [ "$v" = infrastructure ] || deny "$k" ;;
+                802-11-wireless.band) [ "$v" = bg ] || [ "$v" = a ] || deny "$k" ;;
+                ipv4.method) [ "$v" = shared ] || [ "$v" = auto ] || deny "$k" ;;
+                ipv4.addresses) [ "$v" = 10.42.0.1/24 ] || deny "$k" ;;
+                ipv6.method) [ "$v" = disabled ] || [ "$v" = auto ] || deny "$k" ;;
+                wifi-sec.key-mgmt) [ "$v" = wpa-psk ] || deny "$k" ;;
+                wifi-sec.psk) [ "${#v}" -ge 8 ] && [ "${#v}" -le 64 ] || deny "$k" ;;
+                *) deny "inställningen $k" ;;
+            esac
+        done ;;
+    *)
+        deny "${1:-} ${2:-}" ;;
+esac
+exec "$NMCLI" "${ORIG[@]}"

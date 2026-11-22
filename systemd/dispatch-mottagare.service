@@ -10,6 +10,8 @@ User=mottagare
 Group=mottagare
 SupplementaryGroups=plugdev dialout
 WorkingDirectory=/opt/dispatch-mottagare
+# 0.4.3: sudo-regeln och nmcli-skriptet (som root, + ; ett fel stoppar inte programmet, -)
+ExecStartPre=-+/opt/dispatch-mottagare/bin/systemfiler.sh
 ExecStart=/usr/bin/node /opt/dispatch-mottagare/src/main.js
 Restart=always
 RestartSec=3
